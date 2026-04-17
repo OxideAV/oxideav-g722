@@ -6,7 +6,7 @@ rust-version = "1.80"
 license = "MIT"
 repository = "https://github.com/OxideAV/oxideav-g722"
 authors = ["Mark Karpeles"]
-description = "Pure-Rust ITU-T G.722 (64 kbit/s) wideband sub-band ADPCM codec"
+description = "Pure-Rust ITU-T G.722 wideband sub-band ADPCM codec (64 / 56 / 48 kbit/s)"
 
 readme = "README.md"
 homepage = "https://github.com/OxideAV/oxideav-g722"

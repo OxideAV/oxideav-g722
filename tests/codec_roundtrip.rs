@@ -1,9 +1,11 @@
-//! Encode → decode round-trip for a pure tone.
+//! Encode → decode round-trip for a pure tone, across all three G.722
+//! operating modes (64 / 56 / 48 kbit/s).
 //!
-//! G.722 at 64 kbit/s is lossy but preserves enough of a single-frequency
-//! sinusoid that we can assert a non-trivial signal-to-noise ratio. 20 dB
+//! G.722 is lossy but preserves enough of a single-frequency sinusoid that
+//! we can assert a non-trivial signal-to-noise ratio at every rate. 20 dB
 //! PSNR is the floor for a well-behaved quantiser + predictor on a tone —
-//! typical numbers land 5–15 dB higher, so this is a generous margin.
+//! typical numbers land well above that, so this is a generous margin even
+//! for the reduced-rate modes.
 
 // These traits must be in scope so we can call `send_frame` /
 // `send_packet` etc. on the `Box<dyn _>` returned by the factories.
@@ -12,12 +14,17 @@ use oxideav_codec::{Decoder, Encoder};
 use oxideav_core::{AudioFrame, CodecId, CodecParameters, Frame, SampleFormat, TimeBase};
 use oxideav_g722::{decoder, encoder, CODEC_ID_STR};
 
-fn params() -> CodecParameters {
+fn params_with_rate(bit_rate: Option<u64>) -> CodecParameters {
     let mut p = CodecParameters::audio(CodecId::new(CODEC_ID_STR));
     p.sample_rate = Some(16_000);
     p.channels = Some(1);
     p.sample_format = Some(SampleFormat::S16);
+    p.bit_rate = bit_rate;
     p
+}
+
+fn params() -> CodecParameters {
+    params_with_rate(None)
 }
 
 fn sine(len_samples: usize, freq: f32) -> Vec<i16> {
@@ -80,16 +87,14 @@ fn psnr(original: &[i16], decoded: &[i16]) -> f64 {
     best
 }
 
-#[test]
-fn roundtrip_1khz_sine_psnr_above_20db() {
-    // 200 ms at 16 kHz = 3200 samples.
-    let input = sine(3200, 1000.0);
+fn run_roundtrip(bit_rate: Option<u64>, freq: f32, len: usize) -> (Vec<i16>, Vec<i16>) {
+    let input = sine(len, freq);
 
-    let mut enc = encoder::make_encoder(&params()).expect("encoder");
+    let mut enc = encoder::make_encoder(&params_with_rate(bit_rate)).expect("encoder");
     enc.send_frame(&audio_frame(&input)).expect("send_frame");
     enc.flush().expect("flush");
 
-    let mut dec = decoder::make_decoder(&params()).expect("decoder");
+    let mut dec = decoder::make_decoder(&params_with_rate(bit_rate)).expect("decoder");
     let mut decoded: Vec<i16> = Vec::new();
     while let Ok(pkt) = enc.receive_packet() {
         dec.send_packet(&pkt).expect("send_packet");
@@ -109,6 +114,20 @@ fn roundtrip_1khz_sine_psnr_above_20db() {
     }
     dec.flush().ok();
 
+    (input, decoded)
+}
+
+#[test]
+fn roundtrip_1khz_sine_psnr_above_20db() {
+    // 200 ms at 16 kHz = 3200 samples. Default rate (Mode 1, 64 kbit/s).
+    let (input, decoded) = run_roundtrip(None, 1000.0, 3200);
+
+    let mut enc = encoder::make_encoder(&params()).expect("encoder");
+    assert_eq!(enc.output_params().bit_rate, Some(64_000));
+    // Exercise send_frame again to ensure the encoder is usable past the
+    // initial check. (Doesn't matter what we feed it.)
+    enc.send_frame(&audio_frame(&[0i16; 4])).ok();
+
     assert!(
         !decoded.is_empty(),
         "decoder produced no samples for a 200 ms input"
@@ -121,9 +140,86 @@ fn roundtrip_1khz_sine_psnr_above_20db() {
     );
 
     let snr = psnr(&input, &decoded);
-    eprintln!("G.722 1 kHz sine PSNR = {snr:.2} dB");
+    eprintln!("G.722 mode 1 (64 kbit/s) 1 kHz sine PSNR = {snr:.2} dB");
     assert!(
         snr > 20.0,
-        "PSNR {snr:.2} dB below the 20 dB floor for a 1 kHz sine"
+        "PSNR {snr:.2} dB below the 20 dB floor for a 1 kHz sine at 64 kbit/s"
     );
+}
+
+#[test]
+fn roundtrip_mode2_56k_psnr_above_20db() {
+    // 200 ms at 16 kHz = 3200 samples. Mode 2 = 56 kbit/s (5-bit low-band).
+    let (input, decoded) = run_roundtrip(Some(56_000), 1000.0, 3200);
+
+    assert!(!decoded.is_empty());
+    assert!(decoded.len() >= input.len() / 2);
+
+    let snr = psnr(&input, &decoded);
+    eprintln!("G.722 mode 2 (56 kbit/s) 1 kHz sine PSNR = {snr:.2} dB");
+    assert!(
+        snr > 20.0,
+        "PSNR {snr:.2} dB below the 20 dB floor at 56 kbit/s"
+    );
+}
+
+#[test]
+fn roundtrip_mode3_48k_psnr_above_20db() {
+    // 200 ms at 16 kHz = 3200 samples. Mode 3 = 48 kbit/s (4-bit low-band).
+    let (input, decoded) = run_roundtrip(Some(48_000), 1000.0, 3200);
+
+    assert!(!decoded.is_empty());
+    assert!(decoded.len() >= input.len() / 2);
+
+    let snr = psnr(&input, &decoded);
+    eprintln!("G.722 mode 3 (48 kbit/s) 1 kHz sine PSNR = {snr:.2} dB");
+    assert!(
+        snr > 20.0,
+        "PSNR {snr:.2} dB below the 20 dB floor at 48 kbit/s"
+    );
+}
+
+#[test]
+fn reduced_rate_encoder_sets_aux_bits_to_zero() {
+    // Encode a sine at 56 kbit/s: aux bit at position 2 must be zero in
+    // every emitted byte.
+    let input = sine(800, 1000.0);
+    let mut enc = encoder::make_encoder(&params_with_rate(Some(56_000))).expect("encoder");
+    enc.send_frame(&audio_frame(&input)).expect("send_frame");
+    enc.flush().expect("flush");
+
+    while let Ok(pkt) = enc.receive_packet() {
+        for &b in &pkt.data {
+            assert_eq!(
+                b & 0b0000_0100,
+                0,
+                "mode 2 aux bit must be zero in encoder output: byte={b:08b}"
+            );
+        }
+    }
+
+    // 48 kbit/s: both aux bits at positions 3..2 must be zero.
+    let mut enc = encoder::make_encoder(&params_with_rate(Some(48_000))).expect("encoder");
+    enc.send_frame(&audio_frame(&input)).expect("send_frame");
+    enc.flush().expect("flush");
+    while let Ok(pkt) = enc.receive_packet() {
+        for &b in &pkt.data {
+            assert_eq!(
+                b & 0b0000_1100,
+                0,
+                "mode 3 aux bits must be zero in encoder output: byte={b:08b}"
+            );
+        }
+    }
+}
+
+#[test]
+fn encoder_output_params_reflect_rate() {
+    for br in [48_000u64, 56_000, 64_000] {
+        let enc = encoder::make_encoder(&params_with_rate(Some(br))).expect("encoder");
+        assert_eq!(enc.output_params().bit_rate, Some(br));
+    }
+    // No bit_rate → default to 64 kbit/s.
+    let enc = encoder::make_encoder(&params()).expect("encoder");
+    assert_eq!(enc.output_params().bit_rate, Some(64_000));
 }

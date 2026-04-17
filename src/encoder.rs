@@ -1,9 +1,10 @@
-//! G.722 encoder (64 kbit/s mode).
+//! G.722 encoder (64 / 56 / 48 kbit/s).
 //!
 //! Takes 16 kHz mono S16 input frames. Every two input samples feed through
 //! the QMF analysis filter to produce one low/high band pair; each pair is
-//! compressed into one 8-bit packed code (low-band 6 bits in the MSBs,
-//! high-band 2 bits in the LSBs). The encoder emits one packet per
+//! compressed into one 8-bit packed code whose layout depends on the mode
+//! (low-band 6 / 5 / 4 bits; high-band 2 bits; remaining bits are zero aux
+//! bits that a decoder ignores). The encoder emits one packet per
 //! `send_frame` call carrying `samples / 2` bytes.
 
 use std::collections::VecDeque;
@@ -16,6 +17,7 @@ use oxideav_core::{
 use crate::band_high::HighBand;
 use crate::band_low::LowBand;
 use crate::decoder::SAMPLE_RATE_HZ;
+use crate::mode::Mode;
 use crate::qmf::QmfAnalysis;
 
 pub fn make_encoder(params: &CodecParameters) -> Result<Box<dyn Encoder>> {
@@ -37,28 +39,22 @@ pub fn make_encoder(params: &CodecParameters) -> Result<Box<dyn Encoder>> {
             "G.722 encoder: input sample format {sample_format:?} not supported (need S16)"
         )));
     }
-    if let Some(br) = params.bit_rate {
-        if br != 64_000 {
-            return Err(Error::unsupported(format!(
-                "G.722 encoder: only 64 kbit/s is supported; 56 and 48 kbit/s \
-                 modes are not yet implemented (got {br})"
-            )));
-        }
-    }
+    let mode = Mode::from_bit_rate(params.bit_rate)?;
 
     let mut output = params.clone();
     output.media_type = MediaType::Audio;
     output.sample_format = Some(SampleFormat::S16);
     output.channels = Some(1);
     output.sample_rate = Some(SAMPLE_RATE_HZ);
-    output.bit_rate = Some(64_000);
+    output.bit_rate = Some(mode.bit_rate());
 
-    Ok(Box::new(G722Encoder::new(output)))
+    Ok(Box::new(G722Encoder::new(output, mode)))
 }
 
 pub struct G722Encoder {
     output_params: CodecParameters,
     time_base: TimeBase,
+    mode: Mode,
     low: LowBand,
     high: HighBand,
     qmf: QmfAnalysis,
@@ -69,17 +65,23 @@ pub struct G722Encoder {
 }
 
 impl G722Encoder {
-    fn new(output_params: CodecParameters) -> Self {
+    fn new(output_params: CodecParameters, mode: Mode) -> Self {
         Self {
             output_params,
             time_base: TimeBase::new(1, SAMPLE_RATE_HZ as i64),
-            low: LowBand::new(),
+            mode,
+            low: LowBand::for_mode(mode),
             high: HighBand::new(),
             qmf: QmfAnalysis::new(),
             odd_sample: None,
             pending: VecDeque::new(),
             next_pts: 0,
         }
+    }
+
+    /// The G.722 operating mode this encoder was constructed with.
+    pub fn mode(&self) -> Mode {
+        self.mode
     }
 
     /// Encode a slice of S16 samples (which must have even length) into
@@ -91,10 +93,8 @@ impl G722Encoder {
             let (xlow, xhigh) = self.qmf.process(pair[0], pair[1]);
             let il = self.low.encode(xlow as i32);
             let ih = self.high.encode(xhigh as i32);
-            // Bit layout: low-band (6 bits) in high nibble-block, high-band
-            // (2 bits) in LSBs.
-            let byte = ((il & 0x3F) << 2) | (ih & 0x03);
-            out.push(byte);
+            // Pack per the selected mode — auxiliary bits (if any) are zero.
+            out.push(self.mode.pack(il, ih));
         }
         out
     }

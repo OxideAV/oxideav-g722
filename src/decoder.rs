@@ -1,8 +1,12 @@
-//! G.722 decoder (64 kbit/s mode).
+//! G.722 decoder (64 / 56 / 48 kbit/s).
 //!
 //! Accepts packets of arbitrary byte length; each byte is one G.722
-//! sample-serial code (high-band in the low 2 bits, low-band in the high
-//! 6 bits). Every code produces two 16-bit PCM samples at 16 kHz mono.
+//! sample-serial code. The layout inside the byte depends on the mode
+//! (see [`crate::mode::Mode::unpack`]): at every rate the high-band 2-bit
+//! code sits in the low 2 bits, and the low-band code (6 / 5 / 4 bits)
+//! sits in the top bits, optionally separated from the high-band by 1 or
+//! 2 auxiliary bits. Every byte produces two 16-bit PCM samples at 16 kHz
+//! mono.
 
 use std::collections::VecDeque;
 
@@ -13,6 +17,7 @@ use oxideav_core::{
 
 use crate::band_high::HighBand;
 use crate::band_low::LowBand;
+use crate::mode::Mode;
 use crate::qmf::QmfSynthesis;
 use crate::CODEC_ID_STR;
 
@@ -32,20 +37,13 @@ pub fn make_decoder(params: &CodecParameters) -> Result<Box<dyn Decoder>> {
             "G.722: only mono is supported (got {channels} channels)"
         )));
     }
-    // Reject reduced bit-rate requests.
-    if let Some(br) = params.bit_rate {
-        if br != 64_000 {
-            return Err(Error::unsupported(format!(
-                "G.722: only 64 kbit/s is supported; 56 and 48 kbit/s modes \
-                 are not yet implemented (got {br})"
-            )));
-        }
-    }
-    Ok(Box::new(G722Decoder::new()))
+    let mode = Mode::from_bit_rate(params.bit_rate)?;
+    Ok(Box::new(G722Decoder::with_mode(mode)))
 }
 
 pub struct G722Decoder {
     codec_id: CodecId,
+    mode: Mode,
     low: LowBand,
     high: HighBand,
     qmf: QmfSynthesis,
@@ -57,9 +55,14 @@ pub struct G722Decoder {
 
 impl G722Decoder {
     pub fn new() -> Self {
+        Self::with_mode(Mode::Mode1)
+    }
+
+    pub fn with_mode(mode: Mode) -> Self {
         Self {
             codec_id: CodecId::new(CODEC_ID_STR),
-            low: LowBand::new(),
+            mode,
+            low: LowBand::for_mode(mode),
             high: HighBand::new(),
             qmf: QmfSynthesis::new(),
             pending: VecDeque::new(),
@@ -67,6 +70,11 @@ impl G722Decoder {
             next_pts: 0,
             time_base: TimeBase::new(1, SAMPLE_RATE_HZ as i64),
         }
+    }
+
+    /// The G.722 operating mode this decoder was constructed with.
+    pub fn mode(&self) -> Mode {
+        self.mode
     }
 }
 
@@ -90,9 +98,9 @@ impl Decoder for G722Decoder {
         let n_samples = packet.data.len() * 2;
         let mut out_pcm = Vec::<i16>::with_capacity(n_samples);
         for &byte in &packet.data {
-            // Low-band: high 6 bits. High-band: low 2 bits.
-            let il = (byte >> 2) & 0x3F;
-            let ih = byte & 0x03;
+            // Unpack according to the current mode; auxiliary bits (if any)
+            // are silently discarded.
+            let (il, ih) = self.mode.unpack(byte);
             let rl = self.low.decode(il);
             let rh = self.high.decode(ih);
             let (s0, s1) = self.qmf.process(rl as i16, rh as i16);
@@ -138,9 +146,9 @@ impl Decoder for G722Decoder {
         // Wipe the two sub-band adaptive quantiser states (predictor memory,
         // log-scale, pole/zero history) and the QMF synthesis filter history
         // so the next packet decodes as if it were the first. Config fields
-        // (codec_id, time_base) are left untouched. `next_pts` is zeroed so
-        // auto-assigned PTS restart at 0 post-seek.
-        self.low = LowBand::new();
+        // (codec_id, time_base, mode) are left untouched. `next_pts` is
+        // zeroed so auto-assigned PTS restart at 0 post-seek.
+        self.low = LowBand::for_mode(self.mode);
         self.high = HighBand::new();
         self.qmf = QmfSynthesis::new();
         self.pending.clear();
