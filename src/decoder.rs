@@ -51,6 +51,10 @@ pub struct G722Decoder {
     drained: bool,
     next_pts: i64,
     time_base: TimeBase,
+    /// Auxiliary side-channel bytes recovered from packed G.722 bytes.
+    /// One entry per decoded byte, holding `mode.aux_bits()` bits right-
+    /// aligned (always 0 in Mode 1). Drained via [`Self::take_aux`].
+    aux_queue: VecDeque<u8>,
 }
 
 impl G722Decoder {
@@ -69,12 +73,26 @@ impl G722Decoder {
             drained: false,
             next_pts: 0,
             time_base: TimeBase::new(1, SAMPLE_RATE_HZ as i64),
+            aux_queue: VecDeque::new(),
         }
     }
 
     /// The G.722 operating mode this decoder was constructed with.
     pub fn mode(&self) -> Mode {
         self.mode
+    }
+
+    /// Drain accumulated auxiliary side-channel bytes recovered from packed
+    /// G.722 bytes. Each entry contains `mode.aux_bits()` bits right-aligned
+    /// (always 0 on Mode 1, since no aux data is carried at 64 kbit/s). The
+    /// queue is filled in send-packet order — one entry per decoded byte.
+    pub fn take_aux(&mut self) -> Vec<u8> {
+        self.aux_queue.drain(..).collect()
+    }
+
+    /// Number of queued auxiliary bytes still waiting to be drained.
+    pub fn pending_aux(&self) -> usize {
+        self.aux_queue.len()
     }
 }
 
@@ -98,9 +116,8 @@ impl Decoder for G722Decoder {
         let n_samples = packet.data.len() * 2;
         let mut out_pcm = Vec::<i16>::with_capacity(n_samples);
         for &byte in &packet.data {
-            // Unpack according to the current mode; auxiliary bits (if any)
-            // are silently discarded.
-            let (il, ih) = self.mode.unpack(byte);
+            let (il, ih, aux) = self.mode.unpack_with_aux(byte);
+            self.aux_queue.push_back(aux);
             let rl = self.low.decode(il);
             let rh = self.high.decode(ih);
             let (s0, s1) = self.qmf.process(rl as i16, rh as i16);
@@ -154,6 +171,7 @@ impl Decoder for G722Decoder {
         self.pending.clear();
         self.drained = false;
         self.next_pts = 0;
+        self.aux_queue.clear();
         Ok(())
     }
 }

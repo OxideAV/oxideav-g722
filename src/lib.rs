@@ -14,9 +14,11 @@
 //! low-band in the high bits, high-band in the low 2 bits. One byte
 //! therefore describes two PCM samples worth of audio — hence 64 kbit/s
 //! at 16 kHz (8 bits × 8000 packed pairs / sec). At the lower rates one
-//! or two auxiliary bits (always zero on encode, discarded on decode) sit
-//! between the low-band and high-band fields; see [`mode::Mode`] for the
-//! exact bit layout.
+//! or two auxiliary bits sit between the low-band and high-band fields;
+//! see [`mode::Mode`] for the exact bit layout. By default these are zero
+//! on encode and discarded on decode, but the encoder / decoder also expose
+//! `push_aux` / `take_aux` to carry an 8 kbit/s (Mode 2) or 16 kbit/s
+//! (Mode 3) side-channel through them.
 //!
 //! # Operating modes
 //!

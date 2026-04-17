@@ -3,9 +3,10 @@
 //! Takes 16 kHz mono S16 input frames. Every two input samples feed through
 //! the QMF analysis filter to produce one low/high band pair; each pair is
 //! compressed into one 8-bit packed code whose layout depends on the mode
-//! (low-band 6 / 5 / 4 bits; high-band 2 bits; remaining bits are zero aux
-//! bits that a decoder ignores). The encoder emits one packet per
-//! `send_frame` call carrying `samples / 2` bytes.
+//! (low-band 6 / 5 / 4 bits; high-band 2 bits; remaining bits carry
+//! auxiliary side-channel data — zero by default, see [`G722Encoder::push_aux`]
+//! to populate them). The encoder emits one packet per `send_frame` call
+//! carrying `samples / 2` bytes.
 
 use std::collections::VecDeque;
 
@@ -62,10 +63,17 @@ pub struct G722Encoder {
     odd_sample: Option<i16>,
     pending: VecDeque<Packet>,
     next_pts: i64,
+    /// Queued auxiliary side-channel bits, LSB-first per byte. Each pop
+    /// consumes `mode.aux_bits()` bits and packs them into the next emitted
+    /// G.722 byte. Empty queue → zero aux bits emitted (default behaviour).
+    aux_queue: VecDeque<u8>,
 }
 
 impl G722Encoder {
-    fn new(output_params: CodecParameters, mode: Mode) -> Self {
+    /// Construct a G.722 encoder from already-validated output parameters
+    /// and a mode. Most users should call [`make_encoder`] which derives
+    /// both from a [`CodecParameters`] hint.
+    pub fn new(output_params: CodecParameters, mode: Mode) -> Self {
         Self {
             output_params,
             time_base: TimeBase::new(1, SAMPLE_RATE_HZ as i64),
@@ -76,12 +84,29 @@ impl G722Encoder {
             odd_sample: None,
             pending: VecDeque::new(),
             next_pts: 0,
+            aux_queue: VecDeque::new(),
         }
     }
 
     /// The G.722 operating mode this encoder was constructed with.
     pub fn mode(&self) -> Mode {
         self.mode
+    }
+
+    /// Push auxiliary side-channel data. Each byte contributes
+    /// `mode.aux_bits()` bits (LSB-first); excess high bits are masked off.
+    /// Has no effect on Mode 1 (no aux bits available). The data is consumed
+    /// by subsequent `send_frame` calls one byte per emitted G.722 byte.
+    pub fn push_aux(&mut self, data: &[u8]) {
+        if self.mode.aux_bits() == 0 {
+            return;
+        }
+        self.aux_queue.extend(data.iter().copied());
+    }
+
+    /// Number of queued auxiliary bytes still waiting to be packed.
+    pub fn pending_aux(&self) -> usize {
+        self.aux_queue.len()
     }
 
     /// Encode a slice of S16 samples (which must have even length) into
@@ -93,8 +118,8 @@ impl G722Encoder {
             let (xlow, xhigh) = self.qmf.process(pair[0], pair[1]);
             let il = self.low.encode(xlow as i32);
             let ih = self.high.encode(xhigh as i32);
-            // Pack per the selected mode — auxiliary bits (if any) are zero.
-            out.push(self.mode.pack(il, ih));
+            let aux = self.aux_queue.pop_front().unwrap_or(0);
+            out.push(self.mode.pack_with_aux(il, ih, aux));
         }
         out
     }
