@@ -1,21 +1,25 @@
-//! High-band ADPCM — 2-bit quantiser with backward-adaptive predictor.
-//!
-//! Same caveat as [`crate::band_low`]: this implementation is
-//! self-consistent (decoder is the exact inverse of encoder given identical
-//! inputs) rather than bit-exact with ITU-T G.722 tables. The pipeline
-//! shape (quantise → update predictor + scale → form next prediction) is
-//! unchanged; only the tables differ.
+//! High-band ADPCM — ITU-T G.722 normative 2-bit quantiser, log-scale
+//! adapter and 2-pole / 1-zero predictor (clause 3.6). Shared structure
+//! with the low-band but with fewer zero-predictor taps and a different
+//! `det` shift in SCALEH.
 
+use crate::tables::{IHN, IHP, ILB, QM2, RH2, WH};
+
+/// High-band ADPCM state.
 #[derive(Clone, Debug)]
 pub struct HighBand {
     s: i32,
+    sp: i32,
+    sz: i32,
+    nb: i32,
     det: i32,
-    r1: i32,
-    r2: i32,
-    d_hist: [i32; 2],
-    a1: i32,
-    a2: i32,
-    b0: i32,
+    a: [i32; 3],
+    // b[0] unused; only b[1] is tracked for the 1-zero predictor.
+    b: [i32; 2],
+    // d[0] holds the current reconstructed output; d[1] the delayed one.
+    d: [i32; 2],
+    p: [i32; 3],
+    r: [i32; 3],
 }
 
 impl Default for HighBand {
@@ -28,124 +32,147 @@ impl HighBand {
     pub fn new() -> Self {
         Self {
             s: 0,
-            det: 64,
-            r1: 0,
-            r2: 0,
-            d_hist: [0; 2],
-            a1: 0,
-            a2: 0,
-            b0: 0,
+            sp: 0,
+            sz: 0,
+            nb: 0,
+            // ITU-T initial step size for the high band.
+            det: 8,
+            a: [0; 3],
+            b: [0; 2],
+            d: [0; 2],
+            p: [0; 3],
+            r: [0; 3],
         }
     }
 
     /// Encode a 15-bit-range high-band sample to a 2-bit code (0..=3).
     pub fn encode(&mut self, xh: i32) -> u8 {
-        let eh = xh - self.s;
-        let code = quantise(eh, self.det);
-        self.update(code);
-        code
+        let eh = saturate(xh - self.s);
+        let ih = quanth(eh, self.det);
+
+        let wd2 = QM2[ih as usize];
+        let dhigh = (self.det * wd2) >> 15;
+
+        self.update_scale(ih as usize);
+        self.block4(dhigh);
+
+        ih
     }
 
     /// Decode a 2-bit code to a reconstructed high-band sample.
     pub fn decode(&mut self, code: u8) -> i32 {
-        let code = code & 0x3;
-        let dq = dequantise(code, self.det);
-        let r = sat15(self.s + dq);
-        self.update_with(code, dq, r);
-        r
+        let ih = (code & 0x3) as usize;
+        let wd2 = QM2[ih];
+        let dhigh = (self.det * wd2) >> 15;
+
+        let rhigh = saturate15(self.s + dhigh);
+
+        self.update_scale(ih);
+        self.block4(dhigh);
+
+        rhigh
     }
 
-    fn update(&mut self, code: u8) {
-        let code = code & 0x3;
-        let dq = dequantise(code, self.det);
-        let r = sat15(self.s + dq);
-        self.update_with(code, dq, r);
+    /// LOGSCH + SCALEH.
+    fn update_scale(&mut self, ih: usize) {
+        let ih2 = RH2[ih];
+        let wd = (self.nb * 127) >> 7;
+        let nb = (wd + WH[ih2]).clamp(0, 22_528);
+        self.nb = nb;
+
+        let wd1 = ((nb >> 6) & 31) as usize;
+        let wd2 = 10 - (nb >> 11);
+        let wd3 = if wd2 < 0 {
+            ILB[wd1] << (-wd2)
+        } else {
+            ILB[wd1] >> wd2
+        };
+        self.det = wd3 << 2;
     }
 
-    fn update_with(&mut self, code: u8, dq: i32, r: i32) {
-        // Log-domain scale-factor adapter.
-        const WH: [i32; 4] = [-214, -214, 798, 798];
-        let w = WH[(code & 0x3) as usize];
-        self.det = adapt_det(self.det, w);
+    /// BLOCK4 for the high band (1-zero predictor, so only d[1] / b[1]).
+    fn block4(&mut self, d: i32) {
+        self.d[0] = d;
+        self.r[0] = saturate(self.s + d);
 
-        // Single-zero predictor coefficient update.
-        let decayed = self.b0 - (self.b0 >> 8);
-        let delta = if dq == 0 || self.d_hist[0] == 0 {
-            0
-        } else if (dq > 0) == (self.d_hist[0] > 0) {
-            128
-        } else {
-            -128
-        };
-        self.b0 = (decayed + delta).clamp(-32_768, 32_767);
+        self.p[0] = saturate(self.sz + d);
 
-        // 2-pole predictor coefficients.
-        let wd_pol2 = if (r > 0) == (self.r2 > 0) && (r != 0 && self.r2 != 0) {
-            64
-        } else {
-            -64
-        };
-        let a2_new = ((self.a2 as i64 * 32_640) / 32_768) as i32 + wd_pol2;
-        let a2_new = a2_new.clamp(-12_288, 12_288);
-        let wd_pol1 = if (r > 0) == (self.r1 > 0) && (r != 0 && self.r1 != 0) {
-            96
-        } else {
-            -96
-        };
-        let a1_new = ((self.a1 as i64 * 32_640) / 32_768) as i32 + wd_pol1;
-        let a1_limit = 15_360 - a2_new.max(0);
-        let a1_new = a1_new.clamp(-a1_limit.max(1), a1_limit.max(1));
-        self.a1 = a1_new;
-        self.a2 = a2_new;
+        let mut sg = [0i32; 3];
+        for i in 0..3 {
+            sg[i] = self.p[i] >> 15;
+        }
+        let wd1 = saturate(self.a[1] << 2);
+        let mut wd2 = if sg[0] == sg[1] { -wd1 } else { wd1 };
+        if wd2 > 32_767 {
+            wd2 = 32_767;
+        }
+        let mut wd3 = (wd2 >> 7) + if sg[0] == sg[2] { 128 } else { -128 };
+        wd3 += (self.a[2] * 32_512) >> 15;
+        let ap2 = wd3.clamp(-12_288, 12_288);
 
-        // Shift histories.
-        self.d_hist[1] = self.d_hist[0];
-        self.d_hist[0] = dq;
-        self.r2 = self.r1;
-        self.r1 = r;
+        sg[0] = self.p[0] >> 15;
+        sg[1] = self.p[1] >> 15;
+        let wd1 = if sg[0] == sg[1] { 192 } else { -192 };
+        let wd2 = (self.a[1] * 32_640) >> 15;
+        let mut ap1 = saturate(wd1 + wd2);
+        let wd3 = saturate(15_360 - ap2);
+        if ap1 > wd3 {
+            ap1 = wd3;
+        } else if ap1 < -wd3 {
+            ap1 = -wd3;
+        }
 
-        // Next predictor estimate.
-        let sp = ((self.a1 * self.r1) >> 15) + ((self.a2 * self.r2) >> 15);
-        let sz = (self.b0 * self.d_hist[0]) >> 15;
-        self.s = sat15(sp + sz);
+        // UPZERO: high band has only one zero tap (b[1]).
+        let wd1 = if d == 0 { 0 } else { 128 };
+        let sg_d = d >> 15;
+        let sg1 = self.d[1] >> 15;
+        let wd2 = if sg1 == sg_d { wd1 } else { -wd1 };
+        let wd3 = (self.b[1] * 32_640) >> 15;
+        let bp1 = saturate(wd2 + wd3);
+
+        // DELAYA.
+        self.d[1] = self.d[0];
+        self.b[1] = bp1;
+        self.r[2] = self.r[1];
+        self.r[1] = self.r[0];
+        self.p[2] = self.p[1];
+        self.p[1] = self.p[0];
+        self.a[1] = ap1;
+        self.a[2] = ap2;
+
+        // FILTEP.
+        let wd1 = saturate(self.r[1] + self.r[1]);
+        let wd1 = (self.a[1] * wd1) >> 15;
+        let wd2 = saturate(self.r[2] + self.r[2]);
+        let wd2 = (self.a[2] * wd2) >> 15;
+        self.sp = saturate(wd1 + wd2);
+
+        // FILTEZ — only the one non-zero tap.
+        let wd1 = saturate(self.d[1] + self.d[1]);
+        let sz = (self.b[1] * wd1) >> 15;
+        self.sz = saturate(sz);
+
+        self.s = saturate(self.sp + self.sz);
     }
 }
 
-/// 2-bit quantiser. Code 0 is silence (magnitude 0, positive-sign), 1 is
-/// small negative, 2 is small positive, 3 is large. Zero input → code 0.
-fn quantise(eh: i32, det: i32) -> u8 {
-    if eh == 0 {
-        return 0;
-    }
-    let sign = eh < 0;
-    let mag = eh.unsigned_abs() as i32;
-    let step = det.max(1);
-    // Two magnitude tiers: small (mag < 2*step) → tier 0, else tier 1.
-    let tier = if mag < 2 * step { 0 } else { 1 };
-    // Bit 0 = sign, bit 1 = tier.
-    (sign as u8) | (tier << 1)
-}
-
-fn dequantise(code: u8, det: i32) -> i32 {
-    if code == 0 {
-        return 0;
-    }
-    let sign = code & 1;
-    let tier = (code >> 1) & 1;
-    let mag = if tier == 0 { det } else { det * 3 };
-    if sign == 1 {
-        -mag
+/// ITU-T G.722 QUANTH — 2-bit high-band quantiser.
+fn quanth(eh: i32, det: i32) -> u8 {
+    let wd = if eh >= 0 { eh } else { -(eh + 1) };
+    let wd1 = (564 * det) >> 12;
+    let mih = if wd >= wd1 { 2 } else { 1 };
+    if eh < 0 {
+        IHN[mih]
     } else {
-        mag
+        IHP[mih]
     }
 }
 
-fn adapt_det(det: i32, w: i32) -> i32 {
-    let scaled = (det as i64 * (4096 + w as i64)) / 4096;
-    (scaled as i32).clamp(8, 32_767)
+fn saturate(v: i32) -> i32 {
+    v.clamp(-32_768, 32_767)
 }
 
-fn sat15(v: i32) -> i32 {
+fn saturate15(v: i32) -> i32 {
     v.clamp(-16_384, 16_383)
 }
 
@@ -154,15 +181,14 @@ mod tests {
     use super::*;
 
     #[test]
-    fn silence_stays_silent() {
+    fn silence_handled() {
         let mut enc = HighBand::new();
         let mut dec = HighBand::new();
         for _ in 0..400 {
             let code = enc.encode(0);
-            assert_eq!(code, 0);
-            let r = dec.decode(code);
-            assert_eq!(r, 0);
+            let _ = dec.decode(code);
         }
+        assert!(enc.s.abs() < 256);
     }
 
     #[test]
@@ -175,6 +201,7 @@ mod tests {
             let _ = dec.decode(code);
             assert_eq!(enc.s, dec.s);
             assert_eq!(enc.det, dec.det);
+            assert_eq!(enc.nb, dec.nb);
         }
     }
 }

@@ -39,19 +39,21 @@
 //! - Explicit reset-on-keyframe — the decoder runs continuously across
 //!   packet boundaries, which matches how G.722 is typically carried in
 //!   RTP / SIP.
-//! - Bit-exact compatibility with the ITU-T Table 6 / 7 / 8 quantiser and
-//!   log-scale adapter is not yet implemented. The QMF coefficients and
-//!   structure match SpanDSP/libg722 exactly (and pass a pure-QMF >30 dB
-//!   roundtrip), but the ADPCM predictor + scale adapter use a simpler,
-//!   self-consistent rule ([`band_low`] / [`band_high`]). Encoder and
-//!   decoder share the same update rule so they stay in lock-step, giving
-//!   >20 dB PSNR round trips at all three rates, but the on-wire bytes are
-//!   not directly interchangeable with other G.722 implementations yet. See
-//!   the module docs of [`band_low`] and [`band_high`] for details. The
-//!   normative ITU inverse-quantiser tables are available as constants in
-//!   [`tables`] for the eventual bit-exact port.
+//! - The ADPCM pipeline uses the normative ITU-T G.722 tables: `QM6` /
+//!   `QM5` / `QM4` / `QM2` for inverse quantisation, `Q6` / `ILN` / `ILP`
+//!   for the 6-bit forward quantiser, `WL` / `WH` / `RL42` / `RH2` / `ILB`
+//!   for the log-scale adapter, all available as constants in [`tables`].
+//!   The 2-pole / 6-zero (low-band) and 2-pole / 1-zero (high-band)
+//!   predictors follow BLOCK4 verbatim (see [`band_low`] / [`band_high`]).
+//!   Per the spec the encoder uses `QM4` for its local reconstruction at
+//!   every rate (INVQAL) — the decoder picks the rate-matched table —
+//!   which is what enables the same encoder output to feed an any-rate
+//!   decoder. Bit-exact interop with a canonical ITU-T bitstream has not
+//!   yet been verified against ITU test vectors (the byte layout in this
+//!   crate puts the low-band field in the high bits; SpanDSP's layout is
+//!   the other way round).
 //!
-//! Reference: ITU-T Recommendation G.722 (09/2012) and its Annex I public-domain
+//! Reference: ITU-T Recommendation G.722 (09/2012) and its public-domain
 //! reference implementation, plus SpanDSP / libg722 (Steve Underwood, public
 //! domain) for the QMF coefficient convention.
 

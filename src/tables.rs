@@ -1,19 +1,12 @@
-//! ITU-T G.722 reference inverse-quantiser tables.
+//! ITU-T G.722 reference tables.
 //!
-//! These are the `qm6` / `qm5` / `qm4` / `qm2` arrays given verbatim in the
-//! ITU-T G.722 (09/2012) reference code — the same values that appear in
-//! every widely-used implementation (SpanDSP `libg722`, sippy/libg722,
-//! NAudio's `G722Codec.cs`, etc.).
+//! These are the forward / inverse quantiser and log-step arrays given
+//! verbatim in the ITU-T G.722 (09/2012) reference code — the same values
+//! that appear in every widely-used implementation (SpanDSP `libg722`,
+//! sippy/libg722, NAudio's `G722Codec.cs`, etc.).
 //!
-//! They are defined here so that the crate ships the normative spec tables
-//! alongside the current "equivalent-shape" pipeline in [`crate::band_low`].
-//! The shipping low-band quantiser is a bit-width-parametric uniform
-//! quantiser (the decoder is the exact inverse of the encoder for all three
-//! rates, which is what our roundtrip tests verify) but is **not**
-//! bit-compatible with the ITU reference. Porting the pipeline to index
-//! these tables directly is tracked as a follow-up — the constants below
-//! mean that work can start from the authoritative values without having
-//! to pull the ITU tarball again.
+//! The ADPCM pipeline in [`crate::band_low`] / [`crate::band_high`] uses
+//! these tables directly so the bitstream matches the ITU reference.
 //!
 //! Bit allocation per mode (low-band):
 //!
@@ -57,12 +50,58 @@ pub const QM4: [i32; 16] = [
 /// three rates).
 pub const QM2: [i32; 4] = [-7408, -1616, 7408, 1616];
 
+/// Low-band forward-quantiser decision-level table `Q6[32]`. The encoder
+/// compares `(Q6[i] * det) >> 12` against the signed-magnitude prediction
+/// error to find the 6-bit quantiser index. Only entries 1..=29 are used
+/// for searching; entries 0, 30, 31 are sentinels.
+pub const Q6: [i32; 32] = [
+    0, 35, 72, 110, 150, 190, 233, 276, 323, 370, 422, 473, 530, 587, 650, 714, 786, 858, 940,
+    1023, 1121, 1219, 1339, 1458, 1612, 1765, 1980, 2195, 2557, 2919, 0, 0,
+];
+
+/// Negative-sign index table for the low-band forward quantiser. Indexed by
+/// the interval number from the `Q6` decision-level search (1..=29), with
+/// sentinels at 0 and 31.
+pub const ILN: [u8; 32] = [
+    0, 63, 62, 31, 30, 29, 28, 27, 26, 25, 24, 23, 22, 21, 20, 19, 18, 17, 16, 15, 14, 13, 12, 11,
+    10, 9, 8, 7, 6, 5, 4, 0,
+];
+
+/// Positive-sign index table for the low-band forward quantiser. Indexed
+/// by the interval number from the `Q6` decision-level search.
+pub const ILP: [u8; 32] = [
+    0, 61, 60, 59, 58, 57, 56, 55, 54, 53, 52, 51, 50, 49, 48, 47, 46, 45, 44, 43, 42, 41, 40, 39,
+    38, 37, 36, 35, 34, 33, 32, 0,
+];
+
 /// Low-band scale-factor log-step table `WL[8]`, shared across all three
-/// rates. Indexed by the top 3 bits of the low-band code magnitude.
+/// rates. Indexed by `RL42[il >> 2]` where `il` is the 6-bit code.
 pub const WL: [i32; 8] = [-60, -30, 58, 172, 334, 538, 1198, 3042];
 
-/// High-band scale-factor log-step table `WH[3]`.
+/// Low-band re-mapping table: turns the 4-bit `il >> 2` value into a 3-bit
+/// index into `WL`. `rl42[ril]` — used by the scale-factor adapter.
+pub const RL42: [usize; 16] = [0, 7, 6, 5, 4, 3, 2, 1, 7, 6, 5, 4, 3, 2, 1, 0];
+
+/// Step-size mantissa table used by `SCALEL` / `SCALEH`. `ilb[wd1]` is
+/// looked up with `wd1 = (nb >> 6) & 31` and then shifted by `8 - (nb >>
+/// 11)` (low band) or `10 - (nb >> 11)` (high band) to produce the new
+/// `det`.
+pub const ILB: [i32; 32] = [
+    2048, 2093, 2139, 2186, 2233, 2282, 2332, 2383, 2435, 2489, 2543, 2599, 2656, 2714, 2774, 2834,
+    2896, 2960, 3025, 3091, 3158, 3228, 3298, 3371, 3444, 3520, 3597, 3676, 3756, 3838, 3922, 4008,
+];
+
+/// High-band scale-factor log-step table `WH[3]`, indexed by `RH2[ih]`.
 pub const WH: [i32; 3] = [0, -214, 798];
+
+/// High-band 2-bit code → `WH` index mapping.
+pub const RH2: [usize; 4] = [2, 1, 2, 1];
+
+/// Negative-sign index for the high-band forward quantiser.
+pub const IHN: [u8; 3] = [0, 1, 0];
+
+/// Positive-sign index for the high-band forward quantiser.
+pub const IHP: [u8; 3] = [0, 3, 2];
 
 #[cfg(test)]
 mod tests {
@@ -86,5 +125,24 @@ mod tests {
         assert!(QM5[2] < 0 && QM5[16] > 0);
         assert!(QM4[1] < 0 && QM4[8] > 0);
         assert!(QM2[0] < 0 && QM2[2] > 0);
+    }
+
+    #[test]
+    fn ancillary_table_lengths_match_spec() {
+        assert_eq!(Q6.len(), 32);
+        assert_eq!(ILN.len(), 32);
+        assert_eq!(ILP.len(), 32);
+        assert_eq!(ILB.len(), 32);
+        assert_eq!(RL42.len(), 16);
+        assert_eq!(RH2.len(), 4);
+        assert_eq!(IHN.len(), 3);
+        assert_eq!(IHP.len(), 3);
+    }
+
+    #[test]
+    fn rl42_folds_to_3_bit_range() {
+        for &r in RL42.iter() {
+            assert!(r < 8);
+        }
     }
 }

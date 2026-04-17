@@ -98,17 +98,32 @@ the side-channel data rate.
 
 ## Status
 
-- Encoder + decoder cover all three modes; QMF analysis / synthesis match
-  the SpanDSP / libg722 24-tap polyphase reference (>30 dB roundtrip on
-  pure tone with no ADPCM in between).
-- ADPCM pipeline is shape-equivalent to G.722 (sign+magnitude quantiser,
-  log-domain scale-factor adapter, 2-pole / 6-zero low-band predictor,
-  2-pole / 1-zero high-band predictor) with encoder + decoder sharing the
-  exact same update rule, so they stay locked. The on-wire bytes are
-  internally consistent and pass encode-decode PSNR > 20 dB at every
-  rate, but are not bit-exact with other G.722 implementations.
-- The normative ITU-T inverse-quantiser tables (`QM6` / `QM5` / `QM4` /
-  `QM2`) are present in [`tables`] for an eventual bit-exact port.
+- Encoder + decoder cover all three modes.
+- QMF analysis / synthesis match the SpanDSP / libg722 24-tap polyphase
+  reference (>30 dB roundtrip on pure tone with no ADPCM in between).
+- ADPCM pipeline now uses the normative ITU-T G.722 tables — `QM6` /
+  `QM5` / `QM4` / `QM2` for inverse quantisation, `Q6` / `ILN` / `ILP`
+  for the 6-bit forward quantiser (QUANTL), `WL` / `WH` / `RL42` / `RH2`
+  for the log-scale adapter (LOGSCL / LOGSCH), and `ILB` for the step-
+  size recomputation (SCALEL / SCALEH). The 2-pole / 6-zero low-band
+  predictor and 2-pole / 1-zero high-band predictor follow BLOCK4
+  verbatim (RECONS / PARREC / UPPOL2 / UPPOL1 / UPZERO / DELAYA /
+  FILTEP / FILTEZ / PREDIC).
+- Per the ITU-T reference the encoder uses `QM4` for its local
+  reconstruction at every rate (INVQAL), so the encoder state is rate-
+  independent and the same bytes feed any-rate decoder. The decoder
+  uses `QM6` / `QM5` / `QM4` per rate (INVQBL). Encoder + decoder
+  states therefore diverge at modes 1 / 2 by design; round-trip PSNR
+  on a 500 Hz tone is ~20 dB at 64 kbit/s, ~21 dB at 56 kbit/s, and
+  ~38 dB at 48 kbit/s (where both sides share `QM4`).
+- **Bit-exactness with external G.722 implementations has not been
+  verified against ITU-T test vectors yet.** The internal pipeline
+  matches the SpanDSP / libg722 / FFmpeg (non-trellis) reference
+  algorithmically; the byte layout in this crate places the low-band
+  field in the high bits and the high-band field in the low 2 bits,
+  which differs from SpanDSP's `(ih << 6) | il` layout — a byte-for-
+  byte cross-check with an ITU reference stream needs a layout
+  adapter. Deterministic-output tests pin the emitted code sequences.
 - No sync-word framing is emitted; this crate is transparent on byte
   boundaries and leaves framing to the surrounding container (RTP / SIP
   payload type 9, etc.).
