@@ -73,7 +73,7 @@ pub mod qmf;
 pub mod tables;
 
 use oxideav_codec::CodecRegistry;
-use oxideav_core::{CodecCapabilities, CodecId};
+use oxideav_core::{CodecCapabilities, CodecId, CodecTag};
 
 pub const CODEC_ID_STR: &str = "g722";
 
@@ -84,12 +84,11 @@ pub fn register(reg: &mut CodecRegistry) {
         .with_intra_only(false)
         .with_max_channels(1)
         .with_max_sample_rate(16_000);
-    reg.register_both(
-        CodecId::new(CODEC_ID_STR),
-        caps,
-        decoder::make_decoder,
-        encoder::make_encoder,
-    );
+    let cid = CodecId::new(CODEC_ID_STR);
+    reg.register_both(cid.clone(), caps, decoder::make_decoder, encoder::make_encoder);
+
+    // AVI / WAVEFORMATEX tag: WAVE_FORMAT_G722 = 0x0028.
+    reg.claim_tag(cid, CodecTag::wave_format(0x0028), 10, None);
 }
 
 #[cfg(test)]
