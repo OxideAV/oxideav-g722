@@ -72,8 +72,8 @@ pub mod mode;
 pub mod qmf;
 pub mod tables;
 
-use oxideav_codec::{CodecInfo, CodecRegistry};
 use oxideav_core::{CodecCapabilities, CodecId, CodecTag};
+use oxideav_core::{CodecInfo, CodecRegistry};
 
 pub const CODEC_ID_STR: &str = "g722";
 
@@ -98,7 +98,7 @@ pub fn register(reg: &mut CodecRegistry) {
 mod tests {
     use super::*;
     #[allow(unused_imports)]
-    use oxideav_codec::Encoder;
+    use oxideav_core::Encoder;
     use oxideav_core::{CodecParameters, SampleFormat};
 
     fn params() -> CodecParameters {

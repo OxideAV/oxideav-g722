@@ -1,8 +1,8 @@
 //! Silence in → silence-ish out.
 
-#[allow(unused_imports)]
-use oxideav_codec::{Decoder, Encoder};
 use oxideav_core::{AudioFrame, CodecId, CodecParameters, Frame, SampleFormat, TimeBase};
+#[allow(unused_imports)]
+use oxideav_core::{Decoder, Encoder};
 use oxideav_g722::{decoder, encoder, CODEC_ID_STR};
 
 fn params() -> CodecParameters {
