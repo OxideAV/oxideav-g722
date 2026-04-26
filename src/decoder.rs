@@ -12,7 +12,7 @@ use std::collections::VecDeque;
 
 use oxideav_core::Decoder;
 use oxideav_core::{
-    AudioFrame, CodecId, CodecParameters, Error, Frame, Packet, Result, SampleFormat, TimeBase,
+    AudioFrame, CodecId, CodecParameters, Error, Frame, Packet, Result,
 };
 
 use crate::band_high::HighBand;
@@ -50,7 +50,6 @@ pub struct G722Decoder {
     pending: VecDeque<Frame>,
     drained: bool,
     next_pts: i64,
-    time_base: TimeBase,
     /// Auxiliary side-channel bytes recovered from packed G.722 bytes.
     /// One entry per decoded byte, holding `mode.aux_bits()` bits right-
     /// aligned (always 0 in Mode 1). Drained via [`Self::take_aux`].
@@ -72,7 +71,6 @@ impl G722Decoder {
             pending: VecDeque::new(),
             drained: false,
             next_pts: 0,
-            time_base: TimeBase::new(1, SAMPLE_RATE_HZ as i64),
             aux_queue: VecDeque::new(),
         }
     }
@@ -133,12 +131,8 @@ impl Decoder for G722Decoder {
         self.next_pts = pts.unwrap_or(self.next_pts) + n_samples as i64;
 
         self.pending.push_back(Frame::Audio(AudioFrame {
-            format: SampleFormat::S16,
-            channels: 1,
-            sample_rate: SAMPLE_RATE_HZ,
             samples: n_samples as u32,
             pts,
-            time_base: self.time_base,
             data: vec![bytes],
         }));
         Ok(())

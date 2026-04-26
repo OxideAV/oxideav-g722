@@ -1,6 +1,6 @@
 //! Silence in → silence-ish out.
 
-use oxideav_core::{AudioFrame, CodecId, CodecParameters, Frame, SampleFormat, TimeBase};
+use oxideav_core::{AudioFrame, CodecId, CodecParameters, Frame, SampleFormat};
 #[allow(unused_imports)]
 use oxideav_core::{Decoder, Encoder};
 use oxideav_g722::{decoder, encoder, CODEC_ID_STR};
@@ -19,12 +19,8 @@ fn audio_frame(samples: &[i16]) -> Frame {
         bytes.extend_from_slice(&s.to_le_bytes());
     }
     Frame::Audio(AudioFrame {
-        format: SampleFormat::S16,
-        channels: 1,
-        sample_rate: 16_000,
         samples: samples.len() as u32,
         pts: Some(0),
-        time_base: TimeBase::new(1, 16_000),
         data: vec![bytes],
     })
 }

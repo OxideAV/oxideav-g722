@@ -139,23 +139,9 @@ impl Encoder for G722Encoder {
             Frame::Audio(a) => a,
             _ => return Err(Error::invalid("G.722 encoder: audio frames only")),
         };
-        if af.channels != 1 {
-            return Err(Error::invalid(format!(
-                "G.722 encoder: input must be mono (got {} channels)",
-                af.channels
-            )));
-        }
-        if af.sample_rate != SAMPLE_RATE_HZ {
-            return Err(Error::invalid(format!(
-                "G.722 encoder: input must be 16000 Hz (got {} Hz)",
-                af.sample_rate
-            )));
-        }
-        if af.format != SampleFormat::S16 {
-            return Err(Error::invalid(
-                "G.722 encoder: input sample format must be S16",
-            ));
-        }
+        // Stream-level format/channels/sample_rate are now contractual via
+        // CodecParameters and validated at construction; per-frame checks
+        // disappear with the slim AudioFrame shape.
         let bytes = af
             .data
             .first()

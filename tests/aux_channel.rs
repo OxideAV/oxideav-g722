@@ -6,7 +6,7 @@
 //! bits, so the aux queue stays empty there and `take_aux` returns zeros
 //! (matching the on-wire layout of "no aux carried").
 
-use oxideav_core::{AudioFrame, CodecId, CodecParameters, Frame, SampleFormat, TimeBase};
+use oxideav_core::{AudioFrame, CodecId, CodecParameters, Frame, SampleFormat};
 #[allow(unused_imports)]
 use oxideav_core::{Decoder, Encoder};
 use oxideav_g722::{decoder::G722Decoder, encoder::G722Encoder, mode::Mode};
@@ -26,12 +26,8 @@ fn audio_frame(samples: &[i16]) -> Frame {
         bytes.extend_from_slice(&s.to_le_bytes());
     }
     Frame::Audio(AudioFrame {
-        format: SampleFormat::S16,
-        channels: 1,
-        sample_rate: 16_000,
         samples: samples.len() as u32,
         pts: Some(0),
-        time_base: TimeBase::new(1, 16_000),
         data: vec![bytes],
     })
 }
