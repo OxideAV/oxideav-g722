@@ -11,9 +11,7 @@
 use std::collections::VecDeque;
 
 use oxideav_core::Decoder;
-use oxideav_core::{
-    AudioFrame, CodecId, CodecParameters, Error, Frame, Packet, Result,
-};
+use oxideav_core::{AudioFrame, CodecId, CodecParameters, Error, Frame, Packet, Result};
 
 use crate::band_high::HighBand;
 use crate::band_low::LowBand;
