@@ -33,13 +33,13 @@ rejected with `Error::Unsupported`.
 ## Quick use
 
 ```rust
-use oxideav_codec::{CodecRegistry, Decoder, Encoder};
 use oxideav_core::{
-    AudioFrame, CodecId, CodecParameters, Frame, SampleFormat, TimeBase,
+    AudioFrame, CodecId, CodecParameters, Decoder, Encoder, Frame, RuntimeContext,
+    SampleFormat, TimeBase,
 };
 
-let mut codecs = CodecRegistry::new();
-oxideav_g722::register(&mut codecs);
+let mut ctx = RuntimeContext::new();
+oxideav_g722::register(&mut ctx);
 
 let mut params = CodecParameters::audio(CodecId::new("g722"));
 params.sample_rate = Some(16_000);
@@ -47,8 +47,8 @@ params.channels = Some(1);
 params.sample_format = Some(SampleFormat::S16);
 params.bit_rate = Some(64_000); // 56000 or 48000 also valid; None = 64k
 
-let mut enc = codecs.make_encoder(&params)?;
-let mut dec = codecs.make_decoder(&params)?;
+let mut enc = ctx.codecs.make_encoder(&params)?;
+let mut dec = ctx.codecs.make_decoder(&params)?;
 
 // Pack S16 mono samples (interleaved LE bytes) into an AudioFrame and
 // feed the encoder. Output is one packet per send_frame, samples / 2 bytes.
