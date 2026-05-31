@@ -1,23 +1,42 @@
 # oxideav-g722
 
-Pure-Rust decoder for ITU-T G.722 wideband sub-band ADPCM speech coding
-at 64 / 56 / 48 kbit/s.
+Pure-Rust SB-ADPCM codec for ITU-T G.722 wideband speech / audio at
+64 / 56 / 48 kbit/s.
 
 ## Status
 
-Round-185 clean-room rebuild against the staged Recommendation ITU-T
-G.722 (09/2012). The decoder is wired up and self-test green; the
-encoder is not yet implemented.
+Round-200 brings the **encoder side** of G.722 online against the
+staged Recommendation ITU-T G.722 (11/88) Blue-Book edition. Both
+sub-band ADPCM loops are now exercised end-to-end and an encode →
+decode round-trip against silence stays inside a tight envelope.
 
 Coverage:
 
-| Path     | Spec coverage | Notes                                                                                  |
-| -------- | ------------- | -------------------------------------------------------------------------------------- |
-| Decoder  | structural    | Lower (4/5/6-bit modes) + higher (2-bit) sub-band ADPCM + 24-tap receive QMF (Method 2). |
-| Encoder  | none          | Forward-quantizer tables are present but the encode path is not wired up.              |
-| Test vectors | none      | Appendix II digital test sequences are not yet staged under `docs/`.                   |
+| Path     | Spec coverage | Notes                                                                                              |
+| -------- | ------------- | -------------------------------------------------------------------------------------------------- |
+| Encoder  | structural    | Transmit QMF (clause 3.1), BLOCK 1L QUANTL + BLOCK 1H QUANTH forward quantizers, shared predictor. |
+| Decoder  | structural    | Lower (4/5/6-bit modes) + higher (2-bit) inverse ADPCM, 24-tap receive QMF.                        |
+| Test vectors | none      | Appendix II digital test sequences are not yet staged under `docs/`.                               |
 
-### Implemented
+### Implemented in r200
+
+- §3.1 / clause 5.2.1 Transmit QMF — 24-tap analysis bank that splits a
+  16 kHz uniform-PCM input into 8 kHz lower / higher sub-band streams
+  per eqs 3-1..3-4 using the Table 11/G.722 symmetric coefficients.
+- §3.3 BLOCK 1L QUANTL — 60-level lower-sub-band forward adaptive log
+  quantizer, transcribed from the p. 42 pseudo-code (including Note 2
+  exclusion of LDL == LDU rows).
+- §3.3 BLOCK 1H QUANTH — 4-level higher-sub-band forward adaptive
+  quantizer.
+- §1.4.4 Multiplexer — packs (I_H, I_L) into the 64 kbit/s octet
+  format `I_H1 I_H2 I_L1 I_L2 I_L3 I_L4 I_L5 I_L6` (I_H1 = MSB).
+- Table 16/G.722 (`ILP6_FROM_ML` / `ILN6_FROM_ML`) and Table 20/G.722
+  (`IHP2_FROM_MH` / `IHN2_FROM_MH`) — encoder forward output codes.
+- Internal refactor: lifted the shared SB-ADPCM predictor + scale-factor
+  adaptation into `predictor.rs` so the encoder and decoder drive a
+  single source of truth (clauses 3.5 / 3.6).
+
+### Implemented previously (r185)
 
 - §1.3 Modes 1 / 2 / 3 (Table 1, page 3) with mid-stream mode switching.
 - §6.2.1.2 / 6.2.1.5 INVQAL + INVQBL inverse adaptive quantizers.
@@ -27,41 +46,55 @@ Coverage:
 - §6.2.1.6 LIMIT output saturation.
 - §6.2.2 the symmetric higher-sub-band ADPCM blocks 2H / 3H / 4H / 5H
   including the 2-bit inverse quantizer and SCALEH Method 2.
-- §5.2.2 receive QMF with the 24-tap symmetric filter (Table 11,
-  page 23).
+- §5.2.2 receive QMF with the 24-tap symmetric filter (Table 11/G.722).
 
 ### Not yet implemented
 
-- Encode path (§6.2.1.1 BLOCK 1L QUANTL, §6.2.2.1 BLOCK 1H QUANTH and
-  the matching adaptation feedback).
 - Appendix III / IV packet-loss concealment.
 - Annex B superwideband extension (50–14 000 Hz).
 - Annex D stereo extension.
 - Bit-exact validation against the ITU-T G.191 digital test sequences
   (Appendix II) — the test-sequence corpus is not staged under `docs/`.
 
+### Open follow-ups
+
+- The `IL5_FROM_IL5` / `IL4_FROM_IL4` truncated-codeword tables retain
+  an internal "top-bit = sign" convention that is not strictly
+  bit-faithful to Table 19/G.722 / Table 17/G.722; this only matters
+  for Mode 2 / Mode 3 decode bit-exact behaviour and is tracked as a
+  follow-up. Mode 1 is exercised by the encoder → decoder round-trip
+  test added in r200.
+
 ## Usage
 
 ```rust
-use oxideav_g722::{Decoder, Mode};
+use oxideav_g722::{Decoder, Encoder, Mode};
 
+// Encode 16 kHz uniform-PCM samples into G.722 octets.
+let mut encoder = Encoder::new();
+let pcm: Vec<i32> = read_pcm_samples();
+let bitstream: Vec<u8> = encoder.encode(&pcm);
+
+// Decode them back to 16 kHz samples.
 let mut decoder = Decoder::new(Mode::Mode1);
-let bitstream: &[u8] = read_g722_octets();
-let pcm_16khz = decoder.decode(bitstream);
-// pcm_16khz.len() == bitstream.len() * 2
+let samples = decoder.decode(&bitstream);
+assert_eq!(samples.len(), bitstream.len() * 2);
 ```
 
-The decoder can also be constructed via the historical factory entry
-point: `oxideav_g722::make_decoder(Mode::Mode1)`.
+Both directions are also reachable via the historical factory entry
+points: `oxideav_g722::make_encoder()` and
+`oxideav_g722::make_decoder(Mode::Mode1)`.
 
 ## Provenance
 
-All numeric tables and adaptation arithmetic in this crate were
-transcribed by hand from the printed normative tables of
-`docs/audio/adpcm/g722/itu-t.G.722.2012.pdf`. The per-table provenance
-citations sit next to each constant in `src/tables.rs`. No external
-reference C implementation, no FFmpeg / libav* source, no spandsp
-source, and no online resources were consulted during the rebuild.
+All numeric tables, decision rules and adaptation arithmetic in this
+crate were transcribed by hand from the printed normative tables of
+`docs/audio/g722/T-REC-G.722-198811-S.pdf` (the Blue-Book base edition
+of the Recommendation). Per-table provenance citations sit next to
+each constant in `src/tables.rs`. No external reference implementation
+of the codec, no FFmpeg / libav* source, no third-party G.722 source
+distribution, and no online resources were consulted during the
+rebuild.
 
 ## License
 

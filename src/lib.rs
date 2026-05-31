@@ -1,17 +1,21 @@
 //! # oxideav-g722
 //!
-//! Pure-Rust decoder for ITU-T G.722 wideband sub-band adaptive
-//! differential PCM speech coding at 64 / 56 / 48 kbit/s
-//! (Recommendation ITU-T G.722, 09/2012).
+//! Pure-Rust SB-ADPCM codec for ITU-T G.722 wideband audio at
+//! 64 / 56 / 48 kbit/s.
 //!
 //! ## Scope
 //!
-//! This crate currently provides the **receive (decoder) path** of
-//! G.722 SB-ADPCM, structured around the bit-exact integer
-//! computational details of clause 6.2 of the recommendation. Both
-//! the lower (4 kHz) and the higher (4–8 kHz) sub-band adaptive
-//! quantizers are implemented along with the 24-tap receive QMF that
-//! interleaves the two sub-band signals into a 16 kHz output stream.
+//! Both directions of the SB-ADPCM coder are implemented in this
+//! crate:
+//!
+//! * The **transmit path** ([`Encoder`]) packs 16 kHz / 14-bit PCM
+//!   into the 64 kbit/s wire octet stream by way of the 24-tap
+//!   transmit QMF (clause 3.1) and the 60- and 4-level forward
+//!   adaptive quantizers of clauses 3.3 / 6.2.1.1 / 6.2.2.1.
+//! * The **receive path** ([`Decoder`]) unpacks the same octet stream
+//!   back into 16 kHz PCM via the 24-tap receive QMF (clause 4.4)
+//!   and the symmetric inverse quantizers / pole-zero predictors of
+//!   clauses 4 / 6.2.
 //!
 //! Three bit-rate modes are supported (Table 1, clause 1.3):
 //!
@@ -21,38 +25,49 @@
 //! | 2    | 56 kbit/s         | 5 bit                     | 8 kbit/s |
 //! | 3    | 48 kbit/s         | 4 bit                     | 16 kbit/s|
 //!
-//! The encoder is not yet implemented; the registry slot only carries
-//! a decoder factory.
+//! The encoder is mode-agnostic: it always emits the full 6-bit
+//! lower-sub-band codeword and leaves any auxiliary-data LSB
+//! substitution to the optional "data insertion device" downstream
+//! (Figure 1/G.722).
 //!
 //! ## Provenance
 //!
 //! The implementation derives exclusively from the staged
-//! `docs/audio/adpcm/g722/itu-t.G.722.2012.pdf` recommendation
-//! (227 pages). Tables 4, 11, 14, 15-ILB, 17, 18, 19 and 21 of the
-//! recommendation were transcribed by hand from the printed normative
-//! tables; see `src/tables.rs` for the per-table provenance citation.
-//! No external reference C implementation, no FFmpeg / libav* source,
-//! no spandsp source, and no online resources were consulted during
-//! this round.
+//! `docs/audio/g722/T-REC-G.722-198811-S.pdf` (the Blue-Book base
+//! edition of the Recommendation). Tables 4, 11, 14, 15-ILB, 16,
+//! 17, 18, 19, 20 and 21 of the Recommendation were transcribed by
+//! hand from the printed normative tables; see `src/tables.rs` for
+//! the per-table provenance citation. No external reference
+//! implementation of the codec, no FFmpeg / libav* source, no
+//! third-party G.722 source distribution, and no online resources
+//! were consulted during the rebuild.
 //!
 //! ## Usage
 //!
 //! ```
-//! use oxideav_g722::{Decoder, Mode};
+//! use oxideav_g722::{Decoder, Encoder, Mode};
 //!
+//! // Encode 16 kHz PCM (here a four-sample silence) into G.722 octets.
+//! let mut encoder = Encoder::new();
+//! let octets = encoder.encode(&[0_i32; 4]);
+//! assert_eq!(octets.len(), 2);
+//!
+//! // Decode those octets back to two 16 kHz PCM samples per octet.
 //! let mut decoder = Decoder::new(Mode::Mode1);
-//! let bitstream: &[u8] = &[0x80, 0x40, 0xC0, 0x10];
-//! let samples = decoder.decode(bitstream);
-//! assert_eq!(samples.len(), bitstream.len() * 2);
+//! let samples = decoder.decode(&octets);
+//! assert_eq!(samples.len(), octets.len() * 2);
 //! ```
 
 #![warn(missing_debug_implementations)]
 #![warn(missing_docs)]
 
 mod decoder;
+mod encoder;
+mod predictor;
 mod tables;
 
 pub use decoder::{Decoder, Mode};
+pub use encoder::Encoder;
 
 use oxideav_core::RuntimeContext;
 
@@ -91,9 +106,15 @@ pub fn make_decoder(mode: Mode) -> Decoder {
     Decoder::new(mode)
 }
 
-/// Encoder factory placeholder — encode path is not yet implemented.
-pub fn make_encoder() -> Result<(), Error> {
-    Err(Error::NotImplemented)
+/// Direct encoder factory mirroring the `make_encoder` convention used
+/// by sibling codec crates.
+///
+/// Returns an SB-ADPCM encoder operating at the 64 kbit/s wire rate
+/// (the lower-band code-word is always packed as 6 bits per clause 1.3;
+/// the auxiliary-data substitution only affects the receive side, so
+/// the transmit path has no mode parameter).
+pub fn make_encoder() -> Encoder {
+    Encoder::new()
 }
 
 /// Registry entry-point. Currently a no-op since the workspace
@@ -119,7 +140,11 @@ mod tests {
     }
 
     #[test]
-    fn make_encoder_returns_not_implemented() {
-        assert_eq!(make_encoder(), Err(Error::NotImplemented));
+    fn make_encoder_returns_a_fresh_encoder() {
+        let mut enc = make_encoder();
+        // An encoder fed all-zero input must emit valid octets and
+        // pair the multiplexer order described in clause 1.4.4.
+        let out = enc.encode(&[0_i32; 4]);
+        assert_eq!(out.len(), 2, "encoder emits one octet per 2 PCM samples");
     }
 }
