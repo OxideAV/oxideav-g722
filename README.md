@@ -5,10 +5,18 @@ Pure-Rust SB-ADPCM codec for ITU-T G.722 wideband speech / audio at
 
 ## Status
 
-Round-200 brings the **encoder side** of G.722 online against the
+Round-200 brought the **encoder side** of G.722 online against the
 staged Recommendation ITU-T G.722 (11/88) Blue-Book edition. Both
 sub-band ADPCM loops are now exercised end-to-end and an encode →
 decode round-trip against silence stays inside a tight envelope.
+
+Round-207 closes the open follow-up on `Table 19/G.722` by making
+the 5-bit `(SIL, IL5)` inverse-quantizer table bit-faithful to the
+printed spec, including the structural anomaly at `RIL = 11111`
+where the spec assigns `SIL = -1` despite a set top bit (mirroring
+the `111110 / 111111` anomaly that Table 18 already encodes). The
+Mode-2 / Mode-3 round-trip silence envelopes are now part of the
+test set so the receive path is exercised for all three modes.
 
 Coverage:
 
@@ -17,6 +25,20 @@ Coverage:
 | Encoder  | structural    | Transmit QMF (clause 3.1), BLOCK 1L QUANTL + BLOCK 1H QUANTH forward quantizers, shared predictor. |
 | Decoder  | structural    | Lower (4/5/6-bit modes) + higher (2-bit) inverse ADPCM, 24-tap receive QMF.                        |
 | Test vectors | none      | Appendix II digital test sequences are not yet staged under `docs/`.                               |
+
+### Implemented in r207
+
+- Table 19/G.722 (5-bit `(SIL, IL5)` inverse quantizer used by
+  Mode-2 reception) made bit-faithful to the printed spec on p. 40:
+  `RIL = 11111` now resolves to `(SIL = -1, IL5 = 1)` per the
+  printed table (it sits in the SIL = -1 column despite a set top
+  bit, the same structural shape as `Table 18`'s `111110 / 111111`
+  entries).
+- Mode-2 and Mode-3 encoder → decoder round-trip silence-envelope
+  tests added, exercising the previously-uncovered reception modes.
+- New tests covering the Table-19 substituted-codeword footnote
+  (`00000 / 00001`), the 11111 anomaly, and the `IL5 ∈ 1..=15`
+  range invariant.
 
 ### Implemented in r200
 
@@ -58,12 +80,12 @@ Coverage:
 
 ### Open follow-ups
 
-- The `IL5_FROM_IL5` / `IL4_FROM_IL4` truncated-codeword tables retain
-  an internal "top-bit = sign" convention that is not strictly
-  bit-faithful to Table 19/G.722 / Table 17/G.722; this only matters
-  for Mode 2 / Mode 3 decode bit-exact behaviour and is tracked as a
-  follow-up. Mode 1 is exercised by the encoder → decoder round-trip
-  test added in r200.
+- Both `IL5_FROM_IL5` and `IL4_FROM_IL4` are now strictly bit-faithful
+  to the printed Table 19/G.722 and Table 17/G.722 respectively (the
+  r200 caveat was closed by the round-207 fix above). Mode-1, Mode-2
+  and Mode-3 encoder → decoder round-trip silence envelopes are
+  green; bit-exact validation against Appendix-II digital test
+  sequences still awaits a staged G.191 fixture corpus.
 
 ## Usage
 

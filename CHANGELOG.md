@@ -4,6 +4,24 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Round-207 Table 19/G.722 transcription anomaly.** `SIL_FROM_IL5`
+  now matches the printed Table 19 (p. 40) at `RIL = 11111`: the
+  entry resolves to `(SIL = -1, IL5 = 1)` despite a set top bit, the
+  same structural shape as `Table 18`'s `111110 / 111111` entries.
+  The previous implementation used a pure top-bit-as-sign convention
+  which would have flipped the sign of the small-magnitude negative
+  decision interval in Mode-2 reception and driven the predictor in
+  the wrong direction whenever a `11111` truncated codeword arrived.
+
+### Added
+
+- Round-207 Mode-2 and Mode-3 encoder → decoder round-trip
+  silence-envelope tests, plus three new Table 19 unit tests
+  covering the `11111` anomaly, the substituted-codeword footnote
+  (`00000 / 00001`), and the `IL5 ∈ 1..=15` range invariant.
+
 ### Added
 
 - **Round-200 clean-room encoder bring-up.** SB-ADPCM transmit path

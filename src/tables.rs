@@ -352,19 +352,38 @@ const fn build_il6() -> [u8; 64] {
 // intervals. PDF p. 40. Used by the Mode-2 lower-sub-band inverse
 // quantizer (the encoder transmits a 6-bit codeword from which the
 // data-extraction device drops 1 LSB per Table 2/G.722).
+//
+// Note (transcribed from the table footnote, p. 40): "It is possible
+// for the decoder to receive the codewords 00000 and 00001 due to
+// transmission errors." Both are substituted to `(SIL = -1, IL5 = 1)`.
+//
+// The table has one structural anomaly worth flagging: `RIL = 11111`
+// belongs to the SIL = -1 column even though its top bit is 1 — the
+// same shape as Table 18's `111110 / 111111` entries (the spec keeps
+// the smallest-magnitude negative codewords adjacent to the positive
+// half so that single-bit errors at the top stay magnitude-1). Our
+// transcription is `(SIL = -1, IL5 = 1)` for `RIL = 11111` per the
+// printed table.
 // -----------------------------------------------------------------------
 
-/// Sign bit `SIL` per truncated 5-bit `RIL` codeword (Mode 2).
+/// Sign bit `SIL` per truncated 5-bit `RIL` codeword (Mode 2,
+/// Table 19/G.722 p. 40).
 pub const SIL_FROM_IL5: [i32; 32] = build_sil5();
 
-/// Magnitude `IL5` per truncated 5-bit `RIL` codeword (Mode 2).
+/// Magnitude `IL5` per truncated 5-bit `RIL` codeword (Mode 2,
+/// Table 19/G.722 p. 40).
 pub const IL5_FROM_IL5: [u8; 32] = build_il5();
 
 const fn build_sil5() -> [i32; 32] {
+    // Default: top bit of RIL clear ⇒ SIL = -1 (negative half); top bit
+    // set ⇒ SIL = 0 (positive half). One exception: `RIL = 11111` is
+    // listed in the SIL = -1 column of Table 19 (analogous to Table 18's
+    // 111110 / 111111 entries — the smallest-magnitude negative codeword
+    // sits at the top of the positive half so a single-bit MSB flip
+    // can't change a tiny negative into a large positive).
     let mut a = [0_i32; 32];
     let mut i = 0;
     while i < 32 {
-        // Top bit of RIL clear => SIL = -1, top bit set => SIL = 0.
         if (i >> 4) & 1 == 0 {
             a[i] = -1;
         } else {
@@ -372,12 +391,15 @@ const fn build_sil5() -> [i32; 32] {
         }
         i += 1;
     }
+    a[0b11111] = -1;
     a
 }
 
 const fn build_il5() -> [u8; 32] {
     let mut a = [0_u8; 32];
-    // SIL = -1 half (RIL top bit = 0)
+    // SIL = -1 half (RIL top bit = 0).
+    //   RIL = 00000 / 00001 substitute to IL5 = 1 per the footnote
+    //   (transmission-error replacement, Note on p. 40).
     a[0b00000] = 1; // substituted
     a[0b00001] = 1; // substituted
     a[0b00010] = 15;
@@ -394,8 +416,11 @@ const fn build_il5() -> [u8; 32] {
     a[0b01101] = 4;
     a[0b01110] = 3;
     a[0b01111] = 2;
-    // SIL = 0 half (RIL top bit = 1)
+    // The 11111 entry belongs to the SIL = -1 column of Table 19 even
+    // though its top bit is 1 (see `build_sil5` for the rationale);
+    // its IL5 magnitude is 1 per the printed table.
     a[0b11111] = 1;
+    // SIL = 0 half (RIL top bit = 1).
     a[0b11110] = 1;
     a[0b11101] = 2;
     a[0b11100] = 3;
@@ -555,6 +580,45 @@ mod tests {
             let ihn = IHN2_FROM_MH[mh] as usize;
             assert_eq!(SIH_FROM_IH[ihn], -1);
             assert_eq!(IH2_FROM_IH[ihn] as usize, mh);
+        }
+    }
+
+    #[test]
+    fn il5_table_top_row_anomaly_matches_spec() {
+        // Table 19/G.722 (p. 40) lists RIL = 11111 in the SIL = -1
+        // column (the same structural anomaly as Table 18's 111110 /
+        // 111111 entries). Mirrors the behaviour of `SIL_FROM_IL6` at
+        // 0b111110 / 0b111111.
+        assert_eq!(SIL_FROM_IL5[0b11111], -1);
+        assert_eq!(IL5_FROM_IL5[0b11111], 1);
+        // Symmetric anchor on the positive half: RIL = 11110 stays
+        // (SIL = 0, IL5 = 1).
+        assert_eq!(SIL_FROM_IL5[0b11110], 0);
+        assert_eq!(IL5_FROM_IL5[0b11110], 1);
+    }
+
+    #[test]
+    fn il5_substituted_codewords_match_spec_footnote() {
+        // Per the table footnote on p. 40: RIL = 00000 / 00001 are
+        // received only due to transmission errors and are substituted
+        // to (SIL = -1, IL5 = 1).
+        for ril in [0b00000_usize, 0b00001] {
+            assert_eq!(SIL_FROM_IL5[ril], -1);
+            assert_eq!(IL5_FROM_IL5[ril], 1);
+        }
+    }
+
+    #[test]
+    fn il5_table_covers_all_codewords() {
+        // Every 5-bit codeword must map to a valid magnitude in 1..=15
+        // (Table 19 has no magnitude-0 entries — IL5 = 0 is not used,
+        // unlike the 4-bit Table 17 where it marks the substituted /
+        // smallest-positive cells).
+        for (code, &m) in IL5_FROM_IL5.iter().enumerate() {
+            assert!(
+                (1..=15).contains(&m),
+                "IL5 codeword {code:#07b} -> {m} out of range"
+            );
         }
     }
 }

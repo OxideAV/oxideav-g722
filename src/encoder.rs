@@ -576,4 +576,67 @@ mod tests {
             prev = ml;
         }
     }
+
+    #[test]
+    fn encode_then_decode_mode2_envelope_for_silence() {
+        // With the round-207 Table-19 fix the Mode-2 inverse quantiser
+        // matches the spec at RIL = 11111, so silence must still decode
+        // to an envelope around zero (the encoder is unchanged — it
+        // always emits Mode-1 octets — but the receiver discards the
+        // lower-band LSB).
+        let mut enc = Encoder::new();
+        let octets = enc.encode(&[0_i32; 128]);
+        let mut dec = Decoder::new(Mode::Mode2);
+        let pcm = dec.decode(&octets);
+        for &s in &pcm[16..] {
+            assert!(
+                s.abs() <= 1024,
+                "Mode-2 silence sample {s} outside envelope"
+            );
+        }
+    }
+
+    #[test]
+    fn encode_then_decode_mode3_envelope_for_silence() {
+        // Same idea for Mode 3 (two LSBs of the lower band are
+        // discarded).
+        let mut enc = Encoder::new();
+        let octets = enc.encode(&[0_i32; 128]);
+        let mut dec = Decoder::new(Mode::Mode3);
+        let pcm = dec.decode(&octets);
+        for &s in &pcm[16..] {
+            assert!(
+                s.abs() <= 1024,
+                "Mode-3 silence sample {s} outside envelope"
+            );
+        }
+    }
+
+    #[test]
+    fn mode2_round_trip_signal_envelope() {
+        // For a non-trivial tonal-ish input, the Mode-2 reconstruction
+        // must stay inside a generous envelope. This guards against
+        // regressions in the IL5 inverse quantiser path that the
+        // round-207 transcription fix corrected: a wrong sign on
+        // RIL = 11111 would drive the predictor into an entirely
+        // wrong polarity and blow past the LIMIT block's ±16384 cap.
+        let pcm: alloc::vec::Vec<i32> = (0..512_i32).map(|i| 2000 * ((i % 16) - 8)).collect();
+        let mut enc = Encoder::new();
+        let octets = enc.encode(&pcm);
+        let mut dec = Decoder::new(Mode::Mode2);
+        let out = dec.decode(&octets);
+        for &s in &out {
+            assert!(
+                (-16384..=16383).contains(&s),
+                "Mode-2 reconstructed sample {s} escaped LIMIT block"
+            );
+        }
+        // Output must also have non-trivial energy (the codec is not
+        // degenerately mapping everything to zero).
+        let energy: i64 = out.iter().map(|&s| i64::from(s).pow(2)).sum();
+        assert!(
+            energy > 1_000_000,
+            "Mode-2 output energy {energy} too low — predictor likely dead"
+        );
+    }
 }
