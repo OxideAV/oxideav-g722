@@ -4,6 +4,21 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- **Round-212 auxiliary-data channel** — clean-room implementation
+  of Figure 1/G.722's data-insertion / data-extraction devices
+  (clause 1.3, Table 1/G.722) covering Modes 2 (8 kbit/s aux) and 3
+  (16 kbit/s aux). New `aux_data` module exposes `DataInserter` /
+  `DataExtractor` plus const helpers `aux_bits_per_octet` /
+  `aux_bit_rate_kbps`. Substitution lands at `I_L6` (Mode 2) or
+  `I_L5 + I_L6` (Mode 3) in MSB-first wire order per clause 1.4.4;
+  Mode 1 is a pass-through. Caller-supplied padding bit on queue
+  underflow; mode-switch preserves the queue. 21 unit tests cover
+  Table 1 rates, LSB position, queue bookkeeping, mode-switch
+  semantics, end-to-end inserter↔extractor round-trip, and
+  audio-side silence-envelope round-trip with Mode-3 aux active.
+
 ### Fixed
 
 - **Round-207 Table 19/G.722 transcription anomaly.** `SIL_FROM_IL5`

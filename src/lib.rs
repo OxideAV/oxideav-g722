@@ -61,11 +61,13 @@
 #![warn(missing_debug_implementations)]
 #![warn(missing_docs)]
 
+mod aux_data;
 mod decoder;
 mod encoder;
 mod predictor;
 mod tables;
 
+pub use aux_data::{aux_bit_rate_kbps, aux_bits_per_octet, DataExtractor, DataInserter};
 pub use decoder::{Decoder, Mode};
 pub use encoder::Encoder;
 
