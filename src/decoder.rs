@@ -361,6 +361,29 @@ impl Decoder {
         self.qmf.step(rl, rh)
     }
 
+    /// Drive the two sub-band ADPCM decoders directly with already-
+    /// separated codewords `(I_LR, I_H)` and return the per-sub-band
+    /// reconstructed signals `(R_L, R_H)` *without* running the receive
+    /// QMF.
+    ///
+    /// This is the **receive-QMF-bypass** entry point of Configuration 2
+    /// (Appendix II / clause II.2.2 p. 64 of the staged Recommendation
+    /// PDF: "By-passing the QMF, the output signals, RL and RH, are
+    /// separately obtained from the lower and higher sub-band ADPCM
+    /// decoders, respectively").
+    ///
+    /// `i_lr` is the 6-bit lower-sub-band codeword (range 0..=63);
+    /// the decoder's current [`Mode`] decides how many LSBs it actually
+    /// consumes (Table 1/G.722 p. 3). `i_h` is the 2-bit
+    /// higher-sub-band codeword (range 0..=3). Returns the signed LIMIT
+    /// block output of each sub-band as defined by sub-blocks `LIMIT`
+    /// in §§ 6.2.1.6 and 6.2.2.5 of the staged Recommendation.
+    pub fn decode_subband_pair(&mut self, i_lr: u8, i_h: u8) -> (i32, i32) {
+        let rl = self.lower.step((i_lr & 0x3F) as u32, self.mode);
+        let rh = self.higher.step((i_h & 0x3) as u32);
+        (rl, rh)
+    }
+
     /// Decode a slice of octets, writing 2 samples per octet into
     /// the supplied output buffer.
     ///

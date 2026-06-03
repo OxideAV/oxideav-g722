@@ -27,6 +27,20 @@ an `IdleNoiseReport` end-to-end check that drives encoder → decoder
 with digital silence and confirms the resulting PCM-domain RMS sits
 under the clause 2.4.4 wideband −60 dBm0 bound for all three modes.
 
+Round-225 surfaces Appendix II of the Recommendation as a typed
+`test_harness` module: QMF-bypass entry points on the encoder
+(`encode_subband_pair`) and decoder (`decode_subband_pair`) together
+with the four normative sub-blocks INFA / INFB / INFC / INFD of
+clause II.2.3 (p. 65), the bit-position constants of the `X#` / `I#`
+/ `RL#` / `RH#` 16-bit wire-format words, and `run_configuration_1` /
+`run_configuration_2` helpers that walk a caller-supplied test
+sequence through the appropriate codec configuration. The test
+sequence files themselves remain a docs gap (Appendix II.4 lists
+them as PC-DOS / MS-DOS flexible-disk distributions from the ITU;
+they are not bundled here), so the harness is wired but not yet
+verified against the normative `XL` / `XH` / `I#` / `RL#` / `RH#`
+fixtures.
+
 Coverage:
 
 | Path     | Spec coverage | Notes                                                                                              |
@@ -34,6 +48,45 @@ Coverage:
 | Encoder  | structural    | Transmit QMF (clause 3.1), BLOCK 1L QUANTL + BLOCK 1H QUANTH forward quantizers, shared predictor. |
 | Decoder  | structural    | Lower (4/5/6-bit modes) + higher (2-bit) inverse ADPCM, 24-tap receive QMF.                        |
 | Test vectors | none      | Appendix II digital test sequences are not yet staged under `docs/`.                               |
+
+### Implemented in r225
+
+- New `test_harness` module exposing Appendix II of the staged
+  Recommendation:
+  - `Encoder::encode_subband_pair(x_l, x_h)` — Configuration-1
+    QMF-bypass entry point on the encoder (clause II.2.1 p. 64):
+    drives the two sub-band ADPCM encoders directly with already-
+    split sub-band inputs and emits the multiplexed octet.
+  - `Decoder::decode_subband_pair(i_lr, i_h)` — Configuration-2
+    QMF-bypass entry point on the decoder (clause II.2.2 p. 64):
+    drives the two inverse quantiser / predictor loops directly
+    and returns the per-sub-band `LIMIT`-bounded reconstructed
+    signals `(R_L, R_H)`.
+  - `test_harness::{infa, infb, infc, infd}` — the four normative
+    sub-blocks of clause II.2.3 (p. 65) that translate between the
+    16-bit `X#` / `I#` / `RL#` / `RH#` test-sequence words and the
+    per-sample encoder / decoder inputs and outputs. The reset /
+    sync signal `RSS` (LSB of every test-sequence word) is decoded
+    and propagated through the harness.
+  - `RSS_BIT_POSITION` / `RSS_MASK` / `I_HASH_IL_SHIFT` /
+    `I_HASH_IH_SHIFT` / `I_HASH_IL_MASK` / `I_HASH_IH_MASK` /
+    `RL_HASH_SAMPLE_SHIFT` — wire-format bit-position constants
+    matching the INFA / INFB / INFC / INFD packs of Figures II-1 /
+    II-2 / II-3 of G.722.
+  - `run_configuration_1` and `run_configuration_2` — convenience
+    walkers that thread an `X#` or `I#` input sequence through the
+    appropriate codec and return the matching output sequence(s),
+    handling the RSS reset slot by re-initialising the codec and
+    emitting the "non-valid data" output word per the spec.
+- 28 new unit tests covering each sub-block's pseudo-code (INFA
+  arithmetic right shift, INFB zero-fill on RSS, INFC field
+  extraction, INFD shifted sample + clamp), INFB↔INFC round-trip
+  across all 6+2-bit codeword combinations + the RSS bit, bit-field
+  position constants matching Appendix II Figures II-1..3, encoder
+  QMF-bypass determinism and m_L monotonicity at reset, decoder
+  QMF-bypass determinism and oversize-codeword masking, end-to-end
+  Configuration-1 → Configuration-2 silence walk, and post-RSS
+  state-equivalence with a fresh codec for both directions.
 
 ### Implemented in r218
 
@@ -109,7 +162,10 @@ Coverage:
 - Annex B superwideband extension (50–14 000 Hz).
 - Annex D stereo extension.
 - Bit-exact validation against the ITU-T G.191 digital test sequences
-  (Appendix II) — the test-sequence corpus is not staged under `docs/`.
+  (Appendix II) — round-225 wires the Configuration-1 / Configuration-2
+  harness (`test_harness` module) but the test-sequence corpus itself
+  (clause II.4 PC-DOS / MS-DOS flexible-disk distributions from the ITU)
+  is not staged under `docs/`.
 - Clause 2.5.2 receive-side reconstructing-filter mask (Figure 12 /
   G.722) — required to tighten the r218 idle-noise check from the
   wideband −60 dBm0 bound to the narrow-band −66 dBm0 bound of

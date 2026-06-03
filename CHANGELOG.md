@@ -6,6 +6,32 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- **Round-225 Appendix II test-sequence harness.** New `test_harness`
+  module surfaces Configuration 1 / Configuration 2 of Appendix II of
+  the staged ITU-T G.722 (11/88) Recommendation. Adds QMF-bypass
+  entry points on the encoder (`encode_subband_pair`) and decoder
+  (`decode_subband_pair`) per clauses II.2.1 and II.2.2 (p. 64), plus
+  the four normative sub-blocks INFA / INFB / INFC / INFD of clause
+  II.2.3 (p. 65) that translate between the 16-bit `X#` / `I#` /
+  `RL#` / `RH#` test-sequence words and the codec's per-sample
+  inputs and outputs. Bit-position constants (`RSS_BIT_POSITION`,
+  `I_HASH_IL_SHIFT`, `I_HASH_IH_SHIFT`, `RL_HASH_SAMPLE_SHIFT`,
+  matching masks) match Figures II-1 / II-2 / II-3 of the staged
+  Recommendation. Two convenience walkers `run_configuration_1` /
+  `run_configuration_2` thread a caller-supplied test sequence
+  through the appropriate codec and handle the RSS reset slot by
+  re-initialising the codec and emitting the spec's "non-valid
+  data" output word. 28 new unit tests cover each sub-block's
+  pseudo-code, INFB ↔ INFC round-trip across all 6+2-bit codeword
+  combinations + the RSS bit, encoder QMF-bypass determinism and
+  m_L monotonicity at reset, decoder QMF-bypass determinism and
+  oversize-codeword field-masking, an end-to-end Configuration-1 →
+  Configuration-2 silence walk, and post-RSS state-equivalence
+  with a fresh codec for both directions. The Appendix-II
+  test-sequence files themselves remain a docs gap (clause II.4
+  lists them as PC-DOS / MS-DOS flexible-disk distributions from
+  the ITU; they are not staged under `docs/`).
+
 - **Round-218 clause-2 transmission characteristics.** New
   `transmission` module surfaces the normative limits of clause 2 of
   the staged ITU-T G.722 (11/88) Recommendation as typed constants:

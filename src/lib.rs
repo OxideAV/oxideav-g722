@@ -66,6 +66,7 @@ mod decoder;
 mod encoder;
 mod predictor;
 mod tables;
+pub mod test_harness;
 pub mod transmission;
 
 pub use aux_data::{aux_bit_rate_kbps, aux_bits_per_octet, DataExtractor, DataInserter};

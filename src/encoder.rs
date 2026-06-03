@@ -373,6 +373,29 @@ impl Encoder {
         ((ih & 0x3) << 6) | (il & 0x3F)
     }
 
+    /// Drive the two sub-band ADPCM encoders directly with already-split
+    /// sub-band samples `(x_L, x_H)` and return the multiplexed octet.
+    ///
+    /// This is the **transmit-QMF-bypass** entry point of Configuration 1
+    /// (Appendix II / clause II.2.1, page 65 of the staged Recommendation
+    /// PDF: "the QMFs are by-passed and the test sequences are applied
+    /// directly to the ADPCM encoders or decoders"). It is functionally
+    /// equivalent to skipping the transmit QMF stage of [`Encoder::encode_pair`].
+    ///
+    /// `x_L` / `x_H` must already be in the 15-bit-signed range of the
+    /// Configuration-1 input signals `XL` / `XH` (Table II-1/G.722 p. 63);
+    /// the spec's `XL` and `XH` are described as 15-bit uniformly
+    /// quantized signals so the caller is responsible for any
+    /// normalisation that the QMF would otherwise have applied.
+    ///
+    /// The output octet has the same `I_H1 I_H2 I_L1..I_L6` layout as
+    /// [`Encoder::encode_pair`] (clause 1.4.4 p. 6).
+    pub fn encode_subband_pair(&mut self, x_l: i32, x_h: i32) -> u8 {
+        let il = self.lower.step(x_l);
+        let ih = self.higher.step(x_h);
+        ((ih & 0x3) << 6) | (il & 0x3F)
+    }
+
     /// Encode a 16 kHz PCM slice into a freshly allocated octet
     /// vector.
     ///
