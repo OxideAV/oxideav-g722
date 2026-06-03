@@ -6,6 +6,26 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- **Round-218 clause-2 transmission characteristics.** New
+  `transmission` module surfaces the normative limits of clause 2 of
+  the staged ITU-T G.722 (11/88) Recommendation as typed constants:
+  bit/octet/PCM clock rates (clause 1.6 page 8), A/D + D/A
+  sample-clock tolerance (clause 2.2 ±50 ppm), overload-point dBm0
+  reference + tolerance (clause 2.2 +9 dBm0 ± 0.3 dB), nominal
+  reference frequency (clause 2.3 1020 Hz +2/−7), nominal 3-dB
+  passband (clause 2.4.1 50–7000 Hz), absolute group-delay maximum
+  (clause 2.4.3 ≤ 4 ms), idle-noise limits (clause 2.4.4 narrow-band
+  −66 dBm0 / wideband −60 dBm0), and the selective single-frequency
+  noise limit (clause 2.4.5 −70 dBm0). `dbm0_to_uniform_pcm` /
+  `uniform_pcm_rms_to_dbm0` / `uniform_pcm_rms` bridge the dBm0
+  domain (anchored on clause 2.2) and the 14-bit uniform-PCM domain
+  of clause 1.4.1. New `IdleNoiseReport` + `measure_idle_noise`
+  drive an end-to-end encoder → decoder digital-silence test that
+  confirms the receive-side RMS sits under clause 2.4.4's −60 dBm0
+  wideband bound for all three modes. 18 new unit tests covering
+  constant traceability, dBm0 ↔ uniform-PCM round-trip, RMS-on-sine
+  / RMS-on-DC sanity, and silence-floor envelope per mode.
+
 - **Round-212 auxiliary-data channel** — clean-room implementation
   of Figure 1/G.722's data-insertion / data-extraction devices
   (clause 1.3, Table 1/G.722) covering Modes 2 (8 kbit/s aux) and 3

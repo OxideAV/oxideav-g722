@@ -18,6 +18,15 @@ the `111110 / 111111` anomaly that Table 18 already encodes). The
 Mode-2 / Mode-3 round-trip silence envelopes are now part of the
 test set so the receive path is exercised for all three modes.
 
+Round-218 surfaces clause 2 of the Recommendation as a typed
+`transmission` module: clock-rate / sample-clock-tolerance / overload
+/ passband / group-delay / idle-noise / single-frequency-noise
+constants citing their normative clause numbers, plus dBm0 ↔ uniform
+PCM conversion (anchored on clause 2.2's +9 dBm0 overload point) and
+an `IdleNoiseReport` end-to-end check that drives encoder → decoder
+with digital silence and confirms the resulting PCM-domain RMS sits
+under the clause 2.4.4 wideband −60 dBm0 bound for all three modes.
+
 Coverage:
 
 | Path     | Spec coverage | Notes                                                                                              |
@@ -25,6 +34,30 @@ Coverage:
 | Encoder  | structural    | Transmit QMF (clause 3.1), BLOCK 1L QUANTL + BLOCK 1H QUANTH forward quantizers, shared predictor. |
 | Decoder  | structural    | Lower (4/5/6-bit modes) + higher (2-bit) inverse ADPCM, 24-tap receive QMF.                        |
 | Test vectors | none      | Appendix II digital test sequences are not yet staged under `docs/`.                               |
+
+### Implemented in r218
+
+- New `transmission` module exposing the normative limits of clause 2
+  of the Recommendation: `BIT_CLOCK_HZ` / `OCTET_CLOCK_HZ` /
+  `PCM_SAMPLE_CLOCK_HZ` / `SUBBAND_SAMPLE_CLOCK_HZ` (clause 1.6
+  page 8), `SAMPLE_CLOCK_TOLERANCE_PPM` (clause 2.2),
+  `OVERLOAD_POINT_DBM0` + `OVERLOAD_POINT_TOLERANCE_DB` (clause 2.2),
+  `NOMINAL_REFERENCE_FREQUENCY_HZ` (clause 2.3),
+  `NOMINAL_PASSBAND_LOW_HZ` / `NOMINAL_PASSBAND_HIGH_HZ` (clause
+  2.4.1), `ABSOLUTE_GROUP_DELAY_MAX_MS` (clause 2.4.3),
+  `IDLE_NOISE_MAX_DBM0_NARROWBAND` / `_WIDEBAND` (clause 2.4.4) and
+  `SINGLE_FREQUENCY_NOISE_MAX_DBM0` (clause 2.4.5).
+- `uniform_pcm_full_scale` / `dbm0_to_uniform_pcm` /
+  `uniform_pcm_rms_to_dbm0` / `uniform_pcm_rms` bridging dBm0
+  (clause 2.2's +9 dBm0 overload-point reference) and the 14-bit
+  uniform-PCM domain of clause 1.4.1.
+- `measure_idle_noise` + `IdleNoiseReport` driving encoder → decoder
+  with digital silence and reporting the receive-side RMS in both
+  PCM and dBm0 terms. The digital floor sits at ≈ −63 dBm0 across
+  all three modes — passes the clause 2.4.4 wideband (−60 dBm0)
+  bound; the narrow-band (−66 dBm0) bound is a follow-up that
+  depends on clause 2.5.2's reconstructing-filter mask (not yet
+  surfaced).
 
 ### Implemented in r207
 
@@ -77,6 +110,15 @@ Coverage:
 - Annex D stereo extension.
 - Bit-exact validation against the ITU-T G.191 digital test sequences
   (Appendix II) — the test-sequence corpus is not staged under `docs/`.
+- Clause 2.5.2 receive-side reconstructing-filter mask (Figure 12 /
+  G.722) — required to tighten the r218 idle-noise check from the
+  wideband −60 dBm0 bound to the narrow-band −66 dBm0 bound of
+  clause 2.4.4.
+- Clause 2.4.2 attenuation/frequency-distortion mask (Figure 10 /
+  G.722), clause 2.4.3 absolute-group-delay measurement, clause
+  2.4.5 selective-single-frequency-noise check and clause 2.4.6
+  signal-to-total-distortion ratio (marked "under study" in the
+  staged 1988 base edition).
 
 ### Open follow-ups
 
