@@ -6,6 +6,40 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- **Round-231 Appendix II.3.2 synthesisable Configuration-2 input
+  sequence.** New `test_harness::appendix_ii` sub-module surfaces the
+  procedurally-buildable "third" Configuration-2 input sequence of
+  Appendix II.3.2 of the staged ITU-T G.722 (11/88) Recommendation —
+  the only Appendix-II input sequence fully transcribable from the
+  printed PDF (the other two, `T2R1.COD` / `T2R2.COD`, are derived
+  from corpus inputs distributed only on PC-DOS / MS-DOS flexible
+  disks per clause II.4.6 p. 73). Per-sample helpers
+  `lower_msb_bit` / `higher_msb_bit` / `higher_lsb_bit` build the
+  eight 2048-bit MSB / LSB sub-sequences whose patterns are spelled
+  out in clauses II.3.2.1 (p. 67) and II.3.2.2 (p. 68); `lower_lsb5`
+  surfaces the 64-sub-sequence 5-bit-word stream of Table II-4/G.722
+  (p. 69) including the wrap-back sub-sequence `(64)` that closes
+  the suppressed-codeword range back to the table start (clause
+  II.3.2.1 p. 67 footnote). `ilr(idx)` / `ih(idx)` combine the MSB
+  and LSB streams into the 6-bit / 2-bit per-sample codewords;
+  `build_i_hash_stream()` returns the bare 16 384-word `I#` data
+  payload; `build_cod_frame()` wraps it in the 16-word RSS-marker
+  prefix / trailer of the `.COD` file-format layout (clause II.4.5.2
+  p. 72), yielding the 16 416-word stream whose length matches the
+  `T1D3.COD` file-size figure of clause II.4.3 (p. 71). 25 new unit
+  tests cover the printed lead-in of each MSB / LSB sub-sequence
+  (the 17-bit prefix that the PDF spells out for each), Table II-4
+  anchor entries (sub-sequences 1 / 2 / 3 / 31 / 57 / 63 / 64), the
+  ILR / IH composition rules, the data-payload + `.COD`-frame
+  length / RSS-mask invariants, an INFC round-trip on the packed
+  `I#` stream, `run_configuration_2` determinism across two
+  independent decoders, full `.COD`-frame RSS-bracket behaviour
+  (prefix → reset → valid payload → trailer → reset), and a
+  structural invariant on the eight MSB sub-sequences confirming
+  both polarities appear in every sub-sequence except the
+  constant-1 sub-sequence `(3)` (clause II.3.2.1 p. 67's ±2
+  zero-predictor excursion remark).
+
 - **Round-225 Appendix II test-sequence harness.** New `test_harness`
   module surfaces Configuration 1 / Configuration 2 of Appendix II of
   the staged ITU-T G.722 (11/88) Recommendation. Adds QMF-bypass

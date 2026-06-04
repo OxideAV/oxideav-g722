@@ -34,12 +34,22 @@ with the four normative sub-blocks INFA / INFB / INFC / INFD of
 clause II.2.3 (p. 65), the bit-position constants of the `X#` / `I#`
 / `RL#` / `RH#` 16-bit wire-format words, and `run_configuration_1` /
 `run_configuration_2` helpers that walk a caller-supplied test
-sequence through the appropriate codec configuration. The test
-sequence files themselves remain a docs gap (Appendix II.4 lists
-them as PC-DOS / MS-DOS flexible-disk distributions from the ITU;
-they are not bundled here), so the harness is wired but not yet
-verified against the normative `XL` / `XH` / `I#` / `RL#` / `RH#`
-fixtures.
+sequence through the appropriate codec configuration.
+
+Round-231 surfaces the **synthesisable Appendix II.3.2 third
+Configuration-2 input sequence** as a typed `test_harness::appendix_ii`
+sub-module: every per-sample 6-bit `ILR` and 2-bit `IH` codeword of
+the 16 384-value artificial sequence is generated procedurally from
+the bit patterns printed in clauses II.3.2.1 + II.3.2.2 (p. 67–68) and
+Table II-4/G.722 (p. 69), and `build_cod_frame` wraps the payload in
+the 16-word RSS-marker prefix / trailer of the `.COD` file format
+(clause II.4.5.2 p. 72) for a 16 416-word stream matching the
+file-size figure quoted in clause II.4.3 (p. 71). This unblocks the
+spec-derived end-to-end exercise of the receive path that did not
+require the ITU disk distribution; the two encoder-derived sequences
+of clause II.3.2 (`T2R1.COD`, `T2R2.COD`) and the comparison output
+files (`T3L*.RC*`, `T3H*.RC*`) remain a docs gap (they are not
+synthesisable from the printed PDF).
 
 Coverage:
 
@@ -47,9 +57,48 @@ Coverage:
 | -------- | ------------- | -------------------------------------------------------------------------------------------------- |
 | Encoder  | structural    | Transmit QMF (clause 3.1), BLOCK 1L QUANTL + BLOCK 1H QUANTH forward quantizers, shared predictor. |
 | Decoder  | structural    | Lower (4/5/6-bit modes) + higher (2-bit) inverse ADPCM, 24-tap receive QMF.                        |
-| Test vectors | none      | Appendix II digital test sequences are not yet staged under `docs/`.                               |
+| Test vectors | partial   | Synthesised Appendix II.3.2 third sequence (`test_harness::appendix_ii`); ITU disk corpus not staged. |
 
-### Implemented in r225
+### Implemented in r231
+
+- New `test_harness::appendix_ii` sub-module exposing the
+  synthesisable third Configuration-2 input sequence of clause II.3.2
+  (p. 67–68):
+  - `lower_msb_bit(bit_idx)` — the 8-sub-sequence MSB stream of the
+    lower-sub-band 6-bit `ILR` codeword (clause II.3.2.1 p. 67). Each
+    sub-sequence is 2048 bits (`SUBSEQUENCE_LEN_BITS`); the eight
+    patterns of the spec text resolve to periods 3 / 8 / 1 / 4 / 2 /
+    8 / 5 / 5.
+  - `higher_msb_bit(bit_idx)` — clause II.3.2.2 (p. 68) makes this
+    identical to `lower_msb_bit`.
+  - `higher_lsb_bit(bit_idx)` — the 8-sub-sequence LSB stream of the
+    higher-sub-band 2-bit `IH` codeword (clause II.3.2.2 p. 68).
+  - `lower_lsb5(sample_idx)` — the 64-sub-sequence 5-bit-word stream
+    of the lower-sub-band 6-bit codeword's lower five bits, derived
+    from Table II-4/G.722 (p. 69). Sub-sequence `(64)` reads
+    "alternating sixteen 0's, sixteen 3's" — the spec's wrap that
+    closes the suppressed-codeword range back to the table start
+    (clause II.3.2.1 p. 67 footnote).
+  - `ilr(sample_idx)` — packs `(MSB << 5) | LSB5` into the 6-bit
+    `ILR` codeword. `ih(sample_idx)` — packs `(MSB << 1) | LSB` into
+    the 2-bit `IH` codeword.
+  - `build_i_hash_stream()` — the bare 16384-word `I#` data payload
+    with RSS cleared (matches `ARTIFICIAL_SEQUENCE_LEN`).
+  - `build_cod_frame()` — the 16 416-word `T1D3.COD`-shape frame: a
+    16-word RSS-marker prefix (LSB=1, others=0), 16384 data words
+    with RSS cleared, and a 16-word RSS-marker trailer (clause
+    II.4.5.2 p. 72; clause II.4.3 p. 71 file-size figure).
+- 25 new unit tests covering the printed-prefix sanity of each MSB /
+  LSB sub-sequence (the 17-bit lead-in spelled out in the PDF for each
+  pattern), Table II-4 anchor entries (1 / 2 / 3 / 31 / 57 / 63 / 64),
+  the `ILR` / `IH` composition rules, the data-payload + `.COD`-frame
+  length / RSS-mask invariants, an INFC round-trip through the packed
+  `I#` stream, a `run_configuration_2` determinism check across two
+  independent decoders, full `.COD`-frame RSS-bracket round-trip
+  (prefix → reset → valid payload → trailer → reset), and a structural
+  invariant on the eight MSB sub-sequences confirming both polarities
+  appear in every sub-sequence except the constant-1 sub-sequence (3)
+  (clause II.3.2.1 p. 67's ±2 zero-predictor excursion remark).
 
 - New `test_harness` module exposing Appendix II of the staged
   Recommendation:
@@ -161,11 +210,15 @@ Coverage:
 - Appendix III / IV packet-loss concealment.
 - Annex B superwideband extension (50–14 000 Hz).
 - Annex D stereo extension.
-- Bit-exact validation against the ITU-T G.191 digital test sequences
-  (Appendix II) — round-225 wires the Configuration-1 / Configuration-2
-  harness (`test_harness` module) but the test-sequence corpus itself
-  (clause II.4 PC-DOS / MS-DOS flexible-disk distributions from the ITU)
-  is not staged under `docs/`.
+- Bit-exact validation of the receive path against the
+  encoder-derived Configuration-2 input sequences `T2R1.COD` /
+  `T2R2.COD` and the comparison output files `T3L*.RC*` / `T3H*.RC*`
+  — round-225 wires the Configuration-1 / Configuration-2 harness
+  (`test_harness` module) and round-231 surfaces the synthesisable
+  Appendix II.3.2 third input sequence (`test_harness::appendix_ii`),
+  but the disk-distributed corpora of clause II.4 (PC-DOS / MS-DOS
+  flexible-disk distributions from the ITU) are not staged under
+  `docs/` and are necessary for byte-exact comparison.
 - Clause 2.5.2 receive-side reconstructing-filter mask (Figure 12 /
   G.722) — required to tighten the r218 idle-noise check from the
   wideband −60 dBm0 bound to the narrow-band −66 dBm0 bound of
@@ -211,10 +264,9 @@ All numeric tables, decision rules and adaptation arithmetic in this
 crate were transcribed by hand from the printed normative tables of
 `docs/audio/g722/T-REC-G.722-198811-S.pdf` (the Blue-Book base edition
 of the Recommendation). Per-table provenance citations sit next to
-each constant in `src/tables.rs`. No external reference implementation
-of the codec, no FFmpeg / libav* source, no third-party G.722 source
-distribution, and no online resources were consulted during the
-rebuild.
+each constant in `src/tables.rs`. No external source code, no
+external reference implementation, and no online resources were
+consulted during the rebuild.
 
 ## License
 

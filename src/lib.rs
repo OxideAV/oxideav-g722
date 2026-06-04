@@ -37,10 +37,9 @@
 //! edition of the Recommendation). Tables 4, 11, 14, 15-ILB, 16,
 //! 17, 18, 19, 20 and 21 of the Recommendation were transcribed by
 //! hand from the printed normative tables; see `src/tables.rs` for
-//! the per-table provenance citation. No external reference
-//! implementation of the codec, no FFmpeg / libav* source, no
-//! third-party G.722 source distribution, and no online resources
-//! were consulted during the rebuild.
+//! the per-table provenance citation. No external source code, no
+//! external reference implementation, and no online resources were
+//! consulted during the rebuild.
 //!
 //! ## Usage
 //!

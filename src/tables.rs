@@ -4,9 +4,9 @@
 //! Recommendation PDF `docs/audio/g722/T-REC-G.722-198811-S.pdf`
 //! (Blue-Book base edition, 1988-11). Spec table / page citations
 //! below refer to that document so a reader can audit each value
-//! against the printed normative tables. No external reference
-//! implementation, no FFmpeg / libav* source, no third-party G.722
-//! source distribution, and no online resources were consulted.
+//! against the printed normative tables. No external source code, no
+//! external reference implementation, and no online resources were
+//! consulted.
 
 // -----------------------------------------------------------------------
 // Table 11/G.722 — QMF coefficient values (scaled by 2^13). PDF p. 27.
