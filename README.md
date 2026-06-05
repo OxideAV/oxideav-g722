@@ -36,6 +36,25 @@ clause II.2.3 (p. 65), the bit-position constants of the `X#` / `I#`
 `run_configuration_2` helpers that walk a caller-supplied test
 sequence through the appropriate codec configuration.
 
+Round-237 surfaces **clause 2.5.2 / Figure 12/G.722** — the
+output-reconstructing-filter attenuation-vs-frequency mask — as a
+typed `transmission::reconstructing_filter` sub-module: every printed
+breakpoint of the figure (50 Hz / 100 Hz / 6.4 kHz / 7 kHz / 8 kHz /
+9 kHz / 14 kHz) and ripple bound (±0.5 dB tight, +1.5 dB relaxed,
+25 dB / 50 dB / 70 dB stopband floor) is exposed as a named constant,
+plus a `classify(f)` / `evaluate(f, atten_db)` / `stopband_floor_db(f)`
+helper trio that lets a caller measuring `(frequency, attenuation_dB)`
+at test point B (Figure 2/G.722 p. 2) verify the result against the
+printed mask. The previously-open clause-2.4.4 narrow-band-noise
+follow-up of round-218 — which sat above the −60 dBm0 wideband bound
+because the reconstructing-filter shape was not yet pinned — now has a
+typed mask to bolt onto a host filter implementation. 19 new unit tests
+anchor every breakpoint at the printed dB value, exercise the
+log-linear interpolation of the 8–9 kHz / 9–14 kHz stopband segments
+(including geometric-mean midpoint checks against the arithmetic
+midpoint dB), confirm classification across all six bands, and verify
+the mask rejects measurements outside the ripple corridor.
+
 Round-231 surfaces the **synthesisable Appendix II.3.2 third
 Configuration-2 input sequence** as a typed `test_harness::appendix_ii`
 sub-module: every per-sample 6-bit `ILR` and 2-bit `IH` codeword of
@@ -58,6 +77,46 @@ Coverage:
 | Encoder  | structural    | Transmit QMF (clause 3.1), BLOCK 1L QUANTL + BLOCK 1H QUANTH forward quantizers, shared predictor. |
 | Decoder  | structural    | Lower (4/5/6-bit modes) + higher (2-bit) inverse ADPCM, 24-tap receive QMF.                        |
 | Test vectors | partial   | Synthesised Appendix II.3.2 third sequence (`test_harness::appendix_ii`); ITU disk corpus not staged. |
+
+### Implemented in r237
+
+- New `transmission::reconstructing_filter` sub-module surfacing the
+  attenuation/frequency mask of Figure 12/G.722 (p. 12, clause 2.5.2
+  page 11) for the receive audio part's output reconstructing filter:
+  - `PASSBAND_LOW_HZ` / `PASSBAND_TIGHT_HIGH_HZ` /
+    `PASSBAND_RELAXED_HIGH_HZ` / `STOPBAND_ENTRY_HZ` /
+    `STOPBAND_SHOULDER_HZ` / `STOPBAND_FAR_HZ` — the 100 Hz / 6.4 kHz
+    / 7 kHz / 8 kHz / 9 kHz / 14 kHz frequency anchors printed on the
+    figure's log axis (the 50 Hz low anchor reuses the existing
+    `NOMINAL_PASSBAND_LOW_HZ`).
+  - `IN_BAND_LOWER_BOUND_DB` (−0.5 dB), `IN_BAND_TIGHT_UPPER_BOUND_DB`
+    (+0.5 dB), `IN_BAND_RELAXED_UPPER_BOUND_DB` (+1.5 dB),
+    `STOPBAND_ENTRY_MIN_ATTEN_DB` (25 dB), `STOPBAND_SHOULDER_MIN_ATTEN_DB`
+    (50 dB), `STOPBAND_FAR_MIN_ATTEN_DB` (70 dB) — the printed dB
+    values on the attenuation axis (sign convention: attenuation
+    positive).
+  - `MaskBand` enum — six bands matching the figure's piecewise
+    constant / piecewise log-linear segments: `BelowMask`,
+    `LowTransition`, `InBandTight`, `InBandRelaxed`, `HighTransition`,
+    `Stopband`.
+  - `classify(f_hz)` — drops a measured frequency into the matching
+    `MaskBand`.
+  - `evaluate(f_hz, atten_db)` — returns `(MaskBand, bool)` where the
+    `bool` records whether the printed mask is met at that frequency.
+  - `stopband_floor_db(f_hz)` — log-linear interpolation between the
+    three printed stopband anchors (25 dB @ 8 kHz, 50 dB @ 9 kHz,
+    70 dB @ 14 kHz), with `f64::NEG_INFINITY` returned below the
+    stopband entry and a flat 70 dB ceiling above 14 kHz.
+- 19 new unit tests anchoring every breakpoint and ripple bound to its
+  printed value, exercising classification across all six bands,
+  asserting the tight ripple region rejects ±0.6 dB and admits 0 dB,
+  asserting the relaxed region admits 1.0 dB and rejects 1.6 dB,
+  pinning the stopband anchor checks (24 dB at 8 kHz fails, 25 dB
+  passes; same for 50 / 70 dB at 9 / 14 kHz), confirming the floor is
+  monotone non-decreasing on a 100 Hz step grid, verifying the flat
+  70 dB ceiling above 14 kHz, and checking the geometric-mean of two
+  log-axis anchors maps to the arithmetic midpoint of their dB values
+  (the log-linear interpolation invariant).
 
 ### Implemented in r231
 
@@ -219,15 +278,21 @@ Coverage:
   but the disk-distributed corpora of clause II.4 (PC-DOS / MS-DOS
   flexible-disk distributions from the ITU) are not staged under
   `docs/` and are necessary for byte-exact comparison.
-- Clause 2.5.2 receive-side reconstructing-filter mask (Figure 12 /
-  G.722) — required to tighten the r218 idle-noise check from the
-  wideband −60 dBm0 bound to the narrow-band −66 dBm0 bound of
-  clause 2.4.4.
 - Clause 2.4.2 attenuation/frequency-distortion mask (Figure 10 /
   G.722), clause 2.4.3 absolute-group-delay measurement, clause
   2.4.5 selective-single-frequency-noise check and clause 2.4.6
   signal-to-total-distortion ratio (marked "under study" in the
   staged 1988 base edition).
+- Clause 2.5.1 input anti-aliasing filter mask (Figure 11/G.722) —
+  the receive-side reconstructing-filter mask of clause 2.5.2 /
+  Figure 12 is now typed (r237 `transmission::reconstructing_filter`);
+  the transmit-side counterpart of Figure 11 remains a follow-up.
+- Bringing the host system's reconstructing filter into the
+  end-to-end clause 2.4.4 idle-noise check — the r237 mask gives the
+  shape; an actual digital reconstructing filter implementation is
+  needed to apply it before the RMS measurement so the narrow-band
+  −66 dBm0 bound can be checked rather than the looser wideband
+  −60 dBm0 bound.
 
 ### Open follow-ups
 

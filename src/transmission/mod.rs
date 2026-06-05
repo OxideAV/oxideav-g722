@@ -41,6 +41,8 @@ use crate::Decoder;
 use crate::Encoder;
 use crate::Mode;
 
+pub mod reconstructing_filter;
+
 // -----------------------------------------------------------------------
 // Clock + sample-rate accounting (clause 1.6, page 8)
 // -----------------------------------------------------------------------

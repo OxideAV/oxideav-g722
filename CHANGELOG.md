@@ -6,6 +6,37 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- **Round-237 clause 2.5.2 / Figure 12 output reconstructing filter
+  mask.** New `transmission::reconstructing_filter` sub-module surfaces
+  the attenuation/frequency mask of Figure 12/G.722 (p. 12) referenced
+  by clause 2.5.2 (p. 11) of the staged ITU-T G.722 (11/88)
+  Recommendation. The mask's printed frequency anchors (50 Hz / 100 Hz
+  / 6.4 kHz / 7 kHz / 8 kHz / 9 kHz / 14 kHz) are exposed as
+  `PASSBAND_LOW_HZ` / `PASSBAND_TIGHT_HIGH_HZ` /
+  `PASSBAND_RELAXED_HIGH_HZ` / `STOPBAND_ENTRY_HZ` /
+  `STOPBAND_SHOULDER_HZ` / `STOPBAND_FAR_HZ`; the dB anchors
+  (−0.5 / +0.5 / +1.5 dB in-band, 25 / 50 / 70 dB stopband floor) sit
+  in matching `IN_BAND_LOWER_BOUND_DB`, `IN_BAND_TIGHT_UPPER_BOUND_DB`,
+  `IN_BAND_RELAXED_UPPER_BOUND_DB`, `STOPBAND_ENTRY_MIN_ATTEN_DB`,
+  `STOPBAND_SHOULDER_MIN_ATTEN_DB`, `STOPBAND_FAR_MIN_ATTEN_DB`. The
+  `MaskBand` enum partitions the frequency axis into six bands
+  matching the figure's piecewise structure (`BelowMask`,
+  `LowTransition`, `InBandTight`, `InBandRelaxed`, `HighTransition`,
+  `Stopband`); `classify(f_hz)` returns the band; `evaluate(f_hz,
+  atten_db)` returns `(MaskBand, bool)` recording whether the printed
+  bounds are met; `stopband_floor_db(f_hz)` returns the minimum
+  attenuation floor as a log-linear interpolation between the three
+  printed stopband anchors (with `NEG_INFINITY` below the stopband
+  entry and a flat 70 dB ceiling above 14 kHz). 19 new unit tests
+  anchor every breakpoint and ripple bound at the printed value,
+  exercise the six bands across `evaluate` (admit / reject), pin the
+  stopband anchor values (24 dB at 8 kHz fails, 25 dB passes; same for
+  50 / 70 dB at 9 / 14 kHz), assert monotone non-decreasing behaviour
+  of the floor on a 100 Hz step grid across 8 kHz – 20 kHz, verify the
+  flat 70 dB ceiling above 14 kHz, and check the log-linear
+  interpolation invariant (geometric-mean frequency between two
+  anchors yields arithmetic-midpoint dB).
+
 - **Round-231 Appendix II.3.2 synthesisable Configuration-2 input
   sequence.** New `test_harness::appendix_ii` sub-module surfaces the
   procedurally-buildable "third" Configuration-2 input sequence of
