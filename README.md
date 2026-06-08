@@ -36,6 +36,25 @@ clause II.2.3 (p. 65), the bit-position constants of the `X#` / `I#`
 `run_configuration_2` helpers that walk a caller-supplied test
 sequence through the appropriate codec configuration.
 
+Round-262 surfaces **clause 2.4.2 / Figure 10/G.722** — the codec
+end-to-end **attenuation/frequency-distortion** mask — as a typed
+`transmission::attenuation_distortion` sub-module. Unlike the
+filter-only masks of r237 / r258, this is the back-to-back
+encoder + decoder + audio-parts mask the spec quotes for the looped
+configuration of Figure 9/G.722 (p. 10): the corridor is `[−1, +1]` dB
+tight on 100 Hz – 6.4 kHz, `[−1, +3]` dB relaxed on the two
+transition strips (50 – 100 Hz and 6.4 – 7 kHz), `≥ −1` dB lower bound
+only on 7 – 8 kHz (open above), and the mask's right wall sits at
+8 kHz (the Nyquist of the 16 kHz sample clock). The same
+`classify(f)` / `evaluate(f, atten_db)` helpers ship alongside
+`lower_bound_db(f)` / `upper_bound_db(f)` accessors that surface the
+corridor edges directly. 28 new unit tests anchor every printed
+breakpoint at the printed value, pin the corridor-twice-filter-corridor
+invariant against Figures 11 / 12 (each filter mask printed corridor
+is exactly half the codec corridor on every bound), share the
+breakpoint set, and align the right wall with the input
+anti-aliasing-filter stopband entry.
+
 Round-258 surfaces **clause 2.5.1 / Figure 11/G.722** — the
 input-anti-aliasing-filter attenuation-vs-frequency mask — as a typed
 `transmission::anti_aliasing_filter` sub-module: the transmit-side
@@ -336,11 +355,14 @@ Coverage:
   but the disk-distributed corpora of clause II.4 (PC-DOS / MS-DOS
   flexible-disk distributions from the ITU) are not staged under
   `docs/` and are necessary for byte-exact comparison.
-- Clause 2.4.2 attenuation/frequency-distortion mask (Figure 10 /
-  G.722), clause 2.4.3 absolute-group-delay measurement, clause
-  2.4.5 selective-single-frequency-noise check and clause 2.4.6
+- Clause 2.4.3 absolute-group-delay measurement, clause 2.4.5
+  selective-single-frequency-noise check and clause 2.4.6
   signal-to-total-distortion ratio (marked "under study" in the
-  staged 1988 base edition).
+  staged 1988 base edition). Clause 2.4.2 / Figure 10 codec
+  attenuation/frequency-distortion mask is now typed by r262
+  (`transmission::attenuation_distortion`); end-to-end measurement
+  against the printed mask still requires both audio parts to be
+  brought into the loop.
 - Both clause 2.5.1 / Figure 11 (input anti-aliasing) and clause
   2.5.2 / Figure 12 (output reconstructing filter) are now typed
   (r258 `transmission::anti_aliasing_filter` and r237

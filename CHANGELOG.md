@@ -6,6 +6,48 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- **Round-262 clause 2.4.2 / Figure 10 codec end-to-end
+  attenuation/frequency-distortion mask.** New
+  `transmission::attenuation_distortion` sub-module surfaces the
+  attenuation/frequency mask of Figure 10/G.722 (p. 11) referenced by
+  clause 2.4.2 (p. 9) of the staged ITU-T G.722 (11/88) Recommendation
+  — the **end-to-end codec** mask measured at test point B
+  (Figure 2/G.722 p. 2) with a sine input at test point A in the
+  looped configuration of Figure 9/G.722 (p. 10), distinct from the
+  filter-only masks of clauses 2.5.1 / 2.5.2 already pinned by
+  r258 / r237. The printed frequency anchors (50 Hz / 100 Hz /
+  6.4 kHz / 7 kHz / 8 kHz) are exposed as `PASSBAND_LOW_HZ` /
+  `PASSBAND_TIGHT_HIGH_HZ` / `PASSBAND_RELAXED_HIGH_HZ` /
+  `MASK_HIGH_EDGE_HZ`; the dB anchors (`−1` lower / `+1` tight upper /
+  `+3` relaxed upper) sit in matching `IN_BAND_LOWER_BOUND_DB` /
+  `IN_BAND_TIGHT_UPPER_BOUND_DB` / `IN_BAND_RELAXED_UPPER_BOUND_DB`.
+  The `MaskBand` enum partitions the frequency axis into six bands
+  (`BelowMask`, `LowTransition`, `InBandTight`, `InBandRelaxed`,
+  `HighTransition`, `AboveMask`). `classify(f_hz)` /
+  `evaluate(f_hz, atten_db)` mirror the receive-side helper trio with
+  the addition of `lower_bound_db(f_hz)` / `upper_bound_db(f_hz)`
+  accessors that surface the corridor edges directly so a host
+  measuring `(frequency, attenuation_dB)` at test point B can read off
+  the printed envelope at any frequency. Unlike Figures 11 / 12 the
+  mask has no stopband — the right wall sits at the codec's 16 kHz
+  sample-clock Nyquist (8 kHz) above which the codec cannot synthesise
+  signal; below that wall the `HighTransition` strip (7 – 8 kHz) leaves
+  only the `−1` dB lower bound printed and lets the implementation
+  pick its own roll-off shape. 28 new unit tests anchor every printed
+  breakpoint and ripple bound at its printed value, exercise
+  classification across all six bands, pin the corridor edges
+  (`+1.1 dB` at 1 kHz fails; `1.0 dB` passes; `−1.0 dB` passes;
+  `−1.1 dB` fails), verify the relaxed corridor admits `2.0 dB` at
+  6.8 kHz while the tight corridor rejects it, check the
+  `lower_bound_db` is `−1` dB across the full 50 Hz – 8 kHz axis,
+  pin the corridor-twice-filter-corridor invariant against Figures
+  11 / 12 (each filter mask printed corridor is exactly half the codec
+  printed corridor on every bound), assert the shared breakpoint set
+  with Figures 11 / 12 (100 Hz / 6.4 kHz / 7 kHz), align the right
+  wall with the input anti-aliasing filter's stopband entry (8 kHz =
+  `SUBBAND_SAMPLE_CLOCK_HZ`), and pin the closed-interval semantics
+  at every band boundary.
+
 - **Round-258 clause 2.5.1 / Figure 11 input anti-aliasing filter
   mask.** New `transmission::anti_aliasing_filter` sub-module surfaces
   the attenuation/frequency mask of Figure 11/G.722 (p. 12) referenced

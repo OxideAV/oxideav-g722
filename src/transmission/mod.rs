@@ -15,6 +15,7 @@
 //! | clause 2.2    | Overload point of the A/D + D/A converters   | +9 dBm0 ± 0.3 dB         | [`OVERLOAD_POINT_DBM0`] / [`OVERLOAD_POINT_TOLERANCE_DB`] |
 //! | clause 2.3    | Nominal reference frequency                  | 1020 Hz (+2 / −7 Hz)     | [`NOMINAL_REFERENCE_FREQUENCY_HZ`] |
 //! | clause 2.4.1  | Nominal 3-dB passband (Mode 1)               | 50 Hz to 7000 Hz         | [`NOMINAL_PASSBAND_LOW_HZ`] / [`NOMINAL_PASSBAND_HIGH_HZ`] |
+//! | clause 2.4.2  | Attenuation/frequency-distortion mask        | Figure 10 / G.722        | [`attenuation_distortion`] |
 //! | clause 2.4.3  | Absolute group delay (50…7000 Hz, −10 dBm0)  | ≤ 4 ms                   | [`ABSOLUTE_GROUP_DELAY_MAX_MS`] |
 //! | clause 2.4.4  | Idle noise (in 50…7000 Hz, no input)         | ≤ −66 dBm0               | [`IDLE_NOISE_MAX_DBM0_NARROWBAND`] |
 //! | clause 2.4.4  | Idle noise (in 50…20000 Hz, no input)        | ≤ −60 dBm0               | [`IDLE_NOISE_MAX_DBM0_WIDEBAND`] |
@@ -42,6 +43,7 @@ use crate::Encoder;
 use crate::Mode;
 
 pub mod anti_aliasing_filter;
+pub mod attenuation_distortion;
 pub mod reconstructing_filter;
 
 // -----------------------------------------------------------------------
