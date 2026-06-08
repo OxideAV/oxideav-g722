@@ -6,6 +6,41 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- **Round-258 clause 2.5.1 / Figure 11 input anti-aliasing filter
+  mask.** New `transmission::anti_aliasing_filter` sub-module surfaces
+  the attenuation/frequency mask of Figure 11/G.722 (p. 12) referenced
+  by clause 2.5.1 (p. 11) of the staged ITU-T G.722 (11/88)
+  Recommendation, the transmit-side counterpart of the receive-side
+  Figure 12 / `reconstructing_filter` mask landed in r237. Frequency
+  anchors (50 Hz / 100 Hz / 6.4 kHz / 7 kHz / 8 kHz / 9 kHz) are
+  exposed as `PASSBAND_LOW_HZ` / `PASSBAND_TIGHT_HIGH_HZ` /
+  `PASSBAND_RELAXED_HIGH_HZ` / `STOPBAND_ENTRY_HZ` /
+  `STOPBAND_SHOULDER_HZ`; the dB anchors match Figure 11's printed
+  values (`IN_BAND_LOWER_BOUND_DB` = −0.5,
+  `IN_BAND_TIGHT_UPPER_BOUND_DB` = +0.5,
+  `IN_BAND_RELAXED_UPPER_BOUND_DB` = +1.5,
+  `STOPBAND_ENTRY_MIN_ATTEN_DB` = 25, `STOPBAND_SHOULDER_MIN_ATTEN_DB`
+  = 50). Unlike Figure 12 the mask has no 14 kHz / 70 dB anchor — the
+  50 dB ceiling extends flat beyond 9 kHz to the band edge — so the
+  `MaskBand` enum splits the stopband into `StopbandRamp` (8–9 kHz
+  log-linear ramp 25 → 50 dB) and `StopbandFlat` (≥ 9 kHz, flat
+  50 dB). `classify(f_hz)` / `evaluate(f_hz, atten_db)` /
+  `stopband_floor_db(f_hz)` mirror the receive-side helper trio so a
+  caller measuring `(frequency, attenuation_dB)` at test point A
+  (Figure 2/G.722 p. 2) can verify the result against the printed
+  mask. 29 new unit tests anchor every breakpoint and ripple bound at
+  the printed value, exercise classification across all seven bands
+  (including the new ramp/flat split), pin the stopband anchor values
+  (24 dB at 8 kHz fails, 25 dB passes; 49 dB at 9 kHz fails, 50 dB
+  passes), assert monotone non-decreasing behaviour of the floor on a
+  100 Hz step grid across 8 kHz – 20 kHz, verify the flat 50 dB
+  ceiling above 9 kHz, check the log-linear interpolation invariant on
+  the 8–9 kHz ramp, lock the shared-corridor invariant against the
+  Figure 12 mask (in-band ripple corridor + 100 Hz / 6.4 kHz / 7 kHz /
+  8 kHz / 9 kHz breakpoints + 25 dB / 50 dB anchors), and pin the
+  divergence above 9 kHz (Figure 11's 50 dB vs Figure 12's 70 dB at
+  14 kHz).
+
 - **Round-237 clause 2.5.2 / Figure 12 output reconstructing filter
   mask.** New `transmission::reconstructing_filter` sub-module surfaces
   the attenuation/frequency mask of Figure 12/G.722 (p. 12) referenced

@@ -36,6 +36,27 @@ clause II.2.3 (p. 65), the bit-position constants of the `X#` / `I#`
 `run_configuration_2` helpers that walk a caller-supplied test
 sequence through the appropriate codec configuration.
 
+Round-258 surfaces **clause 2.5.1 / Figure 11/G.722** — the
+input-anti-aliasing-filter attenuation-vs-frequency mask — as a typed
+`transmission::anti_aliasing_filter` sub-module: the transmit-side
+counterpart to the receive-side Figure 12 mask landed in r237. The two
+masks share their in-band ripple corridor exactly (±0.5 dB tight on
+100 Hz – 6.4 kHz, +1.5 dB relaxed on 6.4 kHz – 7 kHz, −0.5 dB lower)
+and their 8 kHz / 25 dB and 9 kHz / 50 dB stopband anchors, but
+Figure 11 has no 14 kHz / 70 dB anchor — its 50 dB ceiling extends
+flat past 9 kHz to the band edge. The `MaskBand` enum therefore splits
+the stopband into `StopbandRamp` (8–9 kHz log-linear ramp) and
+`StopbandFlat` (≥ 9 kHz), and the helper trio `classify(f)` /
+`evaluate(f, atten_db)` / `stopband_floor_db(f)` mirrors the
+receive-side API so a caller measuring `(frequency, attenuation_dB)`
+at test point A (Figure 2/G.722 p. 2) can verify the result against
+the printed mask. 29 new unit tests anchor every breakpoint at the
+printed dB value, exercise classification across all seven bands,
+confirm the 8–9 kHz log-linear ramp via geometric-mean checks against
+the arithmetic midpoint dB, lock the shared-corridor invariant against
+the Figure 12 mask, and pin the divergence above 9 kHz (Figure 11's
+50 dB vs Figure 12's 70 dB at 14 kHz).
+
 Round-237 surfaces **clause 2.5.2 / Figure 12/G.722** — the
 output-reconstructing-filter attenuation-vs-frequency mask — as a
 typed `transmission::reconstructing_filter` sub-module: every printed
@@ -77,6 +98,43 @@ Coverage:
 | Encoder  | structural    | Transmit QMF (clause 3.1), BLOCK 1L QUANTL + BLOCK 1H QUANTH forward quantizers, shared predictor. |
 | Decoder  | structural    | Lower (4/5/6-bit modes) + higher (2-bit) inverse ADPCM, 24-tap receive QMF.                        |
 | Test vectors | partial   | Synthesised Appendix II.3.2 third sequence (`test_harness::appendix_ii`); ITU disk corpus not staged. |
+
+### Implemented in r258
+
+- New `transmission::anti_aliasing_filter` sub-module surfacing the
+  attenuation/frequency mask of Figure 11/G.722 (p. 12, clause 2.5.1
+  page 11) for the transmit audio part's input anti-aliasing filter —
+  the transmit-side counterpart to the receive-side
+  `transmission::reconstructing_filter` mask landed in r237:
+  - `PASSBAND_LOW_HZ` / `PASSBAND_TIGHT_HIGH_HZ` /
+    `PASSBAND_RELAXED_HIGH_HZ` / `STOPBAND_ENTRY_HZ` /
+    `STOPBAND_SHOULDER_HZ` — the 100 Hz / 6.4 kHz / 7 kHz / 8 kHz /
+    9 kHz frequency anchors printed on the figure's log axis (the
+    50 Hz low anchor reuses the existing `NOMINAL_PASSBAND_LOW_HZ`).
+  - `IN_BAND_LOWER_BOUND_DB` (−0.5 dB), `IN_BAND_TIGHT_UPPER_BOUND_DB`
+    (+0.5 dB), `IN_BAND_RELAXED_UPPER_BOUND_DB` (+1.5 dB),
+    `STOPBAND_ENTRY_MIN_ATTEN_DB` (25 dB), `STOPBAND_SHOULDER_MIN_ATTEN_DB`
+    (50 dB) — the printed dB values on the attenuation axis.
+  - `MaskBand` enum with seven variants matching the figure's
+    piecewise structure: `BelowMask`, `LowTransition`, `InBandTight`,
+    `InBandRelaxed`, `HighTransition`, `StopbandRamp` (8–9 kHz
+    log-linear ramp 25 → 50 dB), `StopbandFlat` (≥ 9 kHz flat 50 dB).
+  - `classify(f_hz)` / `evaluate(f_hz, atten_db)` /
+    `stopband_floor_db(f_hz)` — the same helper trio as the receive
+    side; `stopband_floor_db` log-linearly interpolates the 8–9 kHz
+    ramp and returns the flat 50 dB ceiling above 9 kHz.
+- 29 new unit tests anchoring every breakpoint and ripple bound to its
+  printed value, exercising classification across all seven bands,
+  pinning the stopband anchor checks (24 dB at 8 kHz fails, 25 dB
+  passes; 49 dB at 9 kHz fails, 50 dB passes; 50 dB at 14 kHz passes),
+  confirming the floor is monotone non-decreasing on a 100 Hz step
+  grid, verifying the flat 50 dB ceiling above 9 kHz, checking the
+  geometric-mean log-linear interpolation invariant on the 8–9 kHz
+  ramp, locking the shared in-band ripple corridor + 100 Hz / 6.4 kHz
+  / 7 kHz / 8 kHz / 9 kHz breakpoints + 25 dB / 50 dB stopband anchors
+  against the Figure 12 mask, and pinning the 14 kHz divergence
+  (50 dB Figure 11 vs 70 dB Figure 12 = 20 dB headroom difference
+  matching the missing 14 kHz / 70 dB anchor).
 
 ### Implemented in r237
 
@@ -283,10 +341,13 @@ Coverage:
   2.4.5 selective-single-frequency-noise check and clause 2.4.6
   signal-to-total-distortion ratio (marked "under study" in the
   staged 1988 base edition).
-- Clause 2.5.1 input anti-aliasing filter mask (Figure 11/G.722) —
-  the receive-side reconstructing-filter mask of clause 2.5.2 /
-  Figure 12 is now typed (r237 `transmission::reconstructing_filter`);
-  the transmit-side counterpart of Figure 11 remains a follow-up.
+- Both clause 2.5.1 / Figure 11 (input anti-aliasing) and clause
+  2.5.2 / Figure 12 (output reconstructing filter) are now typed
+  (r258 `transmission::anti_aliasing_filter` and r237
+  `transmission::reconstructing_filter`); the host system's actual
+  analogue filter implementations still have to be brought into the
+  picture for end-to-end clause-2.4.4 idle-noise verification (see
+  the next bullet).
 - Bringing the host system's reconstructing filter into the
   end-to-end clause 2.4.4 idle-noise check — the r237 mask gives the
   shape; an actual digital reconstructing filter implementation is

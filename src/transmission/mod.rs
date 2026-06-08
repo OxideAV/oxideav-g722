@@ -41,6 +41,7 @@ use crate::Decoder;
 use crate::Encoder;
 use crate::Mode;
 
+pub mod anti_aliasing_filter;
 pub mod reconstructing_filter;
 
 // -----------------------------------------------------------------------
