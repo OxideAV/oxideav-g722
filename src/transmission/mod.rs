@@ -23,6 +23,8 @@
 //! | clause 2.5.1  | Input anti-aliasing-filter mask              | Figure 11 / G.722        | [`anti_aliasing_filter`] |
 //! | clause 2.5.2  | Output reconstructing-filter mask            | Figure 12 / G.722        | [`reconstructing_filter`] |
 //! | clause 2.5.3  | Group-delay-distortion mask                  | Figure 13 / G.722        | [`group_delay_distortion`] |
+//! | clause 2.5.4  | Receive-audio-part idle noise (50…7000 Hz)   | ≤ −75 dBm0               | [`RECEIVE_AUDIO_PART_IDLE_NOISE_MAX_DBM0`] |
+//! | clause 2.5.5  | Signal-to-total-distortion floor vs level    | Figure 14 / G.722        | [`signal_to_distortion`] |
 //!
 //! The values are dimensionless constants here; the spec only nails
 //! the analogue-domain accounting (the A/D + D/A converters of
@@ -49,6 +51,7 @@ pub mod anti_aliasing_filter;
 pub mod attenuation_distortion;
 pub mod group_delay_distortion;
 pub mod reconstructing_filter;
+pub mod signal_to_distortion;
 
 // -----------------------------------------------------------------------
 // Clock + sample-rate accounting (clause 1.6, page 8)
@@ -154,6 +157,21 @@ pub const IDLE_NOISE_NARROWBAND_HIGH_HZ: u32 = 7000;
 /// Upper bound of the idle-noise wideband measurement window (clause
 /// 2.4.4 page 9).
 pub const IDLE_NOISE_WIDEBAND_HIGH_HZ: u32 = 20_000;
+
+/// Maximum unweighted idle-noise power of the **receive audio part
+/// alone** (clause 2.5.4 page 13): "The unweighted noise power of the
+/// receive audio part measured in the frequency range 50 to 7000 Hz
+/// with 14-bit all-zero signal at its input should not exceed
+/// −75 dBm0."
+///
+/// This is an audio-parts requirement (clause 2.5), not a codec
+/// requirement: it bounds the receive audio part (D/A converter +
+/// output reconstructing filter of Figure 2/G.722 page 2) in
+/// isolation, with digital silence at its input. It is therefore
+/// 9 dB stricter than the end-to-end narrow-band limit of clause
+/// 2.4.4 ([`IDLE_NOISE_MAX_DBM0_NARROWBAND`], −66 dBm0) — the
+/// SB-ADPCM loop's own noise floor is granted the difference.
+pub const RECEIVE_AUDIO_PART_IDLE_NOISE_MAX_DBM0: f64 = -75.0;
 
 // -----------------------------------------------------------------------
 // Digital-domain conversions (bridge clause 2.2 ↔ clause 2.4)
@@ -419,6 +437,25 @@ mod tests {
         // Single-frequency mask is tighter than the wideband one
         // (selective measurement of a single tone).
         const _: () = assert!(SINGLE_FREQUENCY_NOISE_MAX_DBM0 < IDLE_NOISE_MAX_DBM0_WIDEBAND);
+    }
+
+    #[test]
+    fn receive_audio_part_idle_noise_matches_clause_2_5_4() {
+        // Clause 2.5.4 page 13: "should not exceed −75 dBm0".
+        assert!((RECEIVE_AUDIO_PART_IDLE_NOISE_MAX_DBM0 - -75.0).abs() < 1e-9);
+        // The receive-audio-part-alone bound is stricter than both
+        // end-to-end codec bounds of clause 2.4.4 (measured in the
+        // same 50–7000 Hz window for the narrow-band one): the
+        // SB-ADPCM loop is allowed to dominate the end-to-end floor.
+        const _: () =
+            assert!(RECEIVE_AUDIO_PART_IDLE_NOISE_MAX_DBM0 < IDLE_NOISE_MAX_DBM0_NARROWBAND);
+        const _: () =
+            assert!(RECEIVE_AUDIO_PART_IDLE_NOISE_MAX_DBM0 < IDLE_NOISE_MAX_DBM0_WIDEBAND);
+        // ... and 9 dB stricter than the narrow-band codec bound.
+        assert!(
+            (IDLE_NOISE_MAX_DBM0_NARROWBAND - RECEIVE_AUDIO_PART_IDLE_NOISE_MAX_DBM0 - 9.0).abs()
+                < 1e-9
+        );
     }
 
     #[test]

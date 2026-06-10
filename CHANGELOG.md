@@ -6,6 +6,49 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- **Round-277 clause 2.5.4 receive-audio-part idle-noise bound +
+  clause 2.5.5 / Figure 14 signal-to-total-distortion-vs-input-level
+  mask.** New `transmission::signal_to_distortion` sub-module
+  surfaces the signal-to-total-distortion-ratio versus input-level
+  mask of Figure 14/G.722 (p. 13) referenced by clause 2.5.5 (p. 13)
+  of the staged ITU-T G.722 (11/88) Recommendation. Clause 2.5.5
+  prescribes two measurements — "about 1 kHz" and "about 6 kHz",
+  modeled as the `MeasurementTone` enum with
+  `nominal_frequency_hz()` / `knee_dbm0()` / `plateau_db()`
+  accessors — and the figure draws one mask curve per tone. The
+  printed input-level anchors (−56 / −21 / −11 / +8 dBm0) sit in
+  `INPUT_LEVEL_LOW_DBM0` / `KNEE_TONE_HIGH_DBM0` /
+  `KNEE_TONE_LOW_DBM0` / `INPUT_LEVEL_HIGH_DBM0` and the printed
+  ratio gridlines (15 / 50 / 60 dB) in `FLOOR_AT_LOW_EDGE_DB` /
+  `PLATEAU_TONE_HIGH_DB` / `PLATEAU_TONE_LOW_DB`. The three printed
+  corners are collinear on a slope-1 diagonal
+  (`ratio = level + 71 dB`, `DIAGONAL_OFFSET_DB`), so each curve's
+  floor is continuous: shared diagonal from (−56, 15), then a 60 dB
+  plateau from −11 dBm0 (1 kHz) or a 50 dB plateau from −21 dBm0
+  (6 kHz), both ending at the +8 dBm0 right wall — 1 dB under the
+  clause 2.2 overload point. The helper trio
+  `classify(tone, level)` / `evaluate(tone, level, ratio_db)` /
+  `min_ratio_db(tone, level)` mirrors the sibling masks,
+  floor-flavoured (`NEG_INFINITY` = no constraint outside the span;
+  measurements must sit at or above the floor). The `MaskBand` enum
+  partitions the level axis into `BelowMask` / `Diagonal` /
+  `Plateau` / `AboveMask`. Also surfaces the clause 2.5.4 (p. 13)
+  receive-audio-part idle-noise bound as
+  `transmission::RECEIVE_AUDIO_PART_IDLE_NOISE_MAX_DBM0` (−75 dBm0,
+  unweighted 50–7000 Hz, 14-bit all-zero input — 9 dB stricter than
+  the end-to-end clause 2.4.4 narrow-band limit). 23 new unit tests
+  (22 in the new sub-module plus a `transmission` mod-level test)
+  anchor every printed coordinate, pin the corner collinearity and
+  knee continuity, sweep floor monotonicity / plateau-maximality on
+  a 0.5 dB grid for both tones, check the strict 1 kHz-over-6 kHz
+  ordering between the knees, exercise exact-floor boundary
+  semantics and NaN handling, and lock the structural alignments
+  (right wall = overload − 1 dB; tones straddle the 4 kHz QMF band
+  split; the 1020 Hz clause 2.3 reference qualifies as "about
+  1 kHz"; the unweighted window is the familiar 50–7000 Hz band;
+  the clause 2.5.4 bound is stricter than both clause 2.4.4 codec
+  bounds).
+
 - **Round-269 clause 2.5.3 / Figure 13 group-delay-distortion mask.**
   New `transmission::group_delay_distortion` sub-module surfaces the
   group-delay-distortion versus frequency mask of Figure 13/G.722

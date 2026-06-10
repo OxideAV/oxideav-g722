@@ -56,6 +56,31 @@ alignments (4 kHz core edge = QMF band-split = half the 8 kHz
 sub-band sample clock; 7 kHz right wall = clause 2.4.1 passband
 edge; 4 ms top step = the clause 2.4.3 printed value).
 
+Round-277 surfaces **clause 2.5.5 / Figure 14/G.722** — the
+**signal-to-total-distortion-ratio versus input-level** mask — as a
+typed `transmission::signal_to_distortion` sub-module, plus the
+one-line clause 2.5.4 receive-audio-part idle-noise bound
+(`RECEIVE_AUDIO_PART_IDLE_NOISE_MAX_DBM0` = −75 dBm0, 9 dB stricter
+than the end-to-end clause 2.4.4 narrow-band limit). Unlike the
+attenuation masks, Figure 14 is a *floor* over input level: clause
+2.5.5 prescribes two measurements ("about 1 kHz" / "about 6 kHz",
+modeled as a `MeasurementTone` enum) and each curve shares one
+slope-1 rising diagonal from the printed (−56 dBm0, 15 dB) left
+corner — the three printed corners are collinear as
+`ratio = level + 71 dB` — before capping on its own plateau: 60 dB
+from −11 dBm0 for the 1 kHz tone, 50 dB from −21 dBm0 for the 6 kHz
+tone (the higher sub-band's coarser budget), both ending at the
++8 dBm0 right wall, 1 dB under the clause 2.2 overload point. The
+helper trio is `classify(tone, level)` / `evaluate(tone, level,
+ratio_db)` / `min_ratio_db(tone, level)`, floor-continuous at both
+knees. 23 new unit tests anchor every printed coordinate, pin the
+corner collinearity, sweep floor monotonicity and plateau-maximality
+on a 0.5 dB grid, check the strict 1-kHz-over-6-kHz ordering between
+the knees, pin boundary semantics at the exact floor, and lock the
+structural alignments (right wall = overload − 1 dB; tones straddle
+the 4 kHz QMF band split; 1020 Hz reference qualifies as "about
+1 kHz"; unweighted window = the familiar 50–7000 Hz band).
+
 Round-262 surfaces **clause 2.4.2 / Figure 10/G.722** — the codec
 end-to-end **attenuation/frequency-distortion** mask — as a typed
 `transmission::attenuation_distortion` sub-module. Unlike the
@@ -385,12 +410,13 @@ Coverage:
   (`transmission::group_delay_distortion`); end-to-end measurement
   against the printed masks still requires both audio parts to be
   brought into the loop.
-- The remaining audio-parts clauses of 2.5: clause 2.5.4 receive-part
-  idle noise (−75 dBm0 constant), clause 2.5.5 / Figure 14
-  signal-to-total-distortion vs input level, clause 2.5.6 / Figure 15
+- The remaining audio-parts clauses of 2.5: clause 2.5.6 / Figure 15
   signal-to-total-distortion vs frequency, clause 2.5.7 / Figure 16
   gain variation vs input level, and the clause 2.5.9 go/return
   crosstalk limits (clause 2.5.8 intermodulation is "under study").
+  Clause 2.5.4 (receive-part idle noise, −75 dBm0) and clause 2.5.5 /
+  Figure 14 (signal-to-total-distortion vs input level) are now typed
+  by r277 (`transmission::signal_to_distortion`).
 - Both clause 2.5.1 / Figure 11 (input anti-aliasing) and clause
   2.5.2 / Figure 12 (output reconstructing filter) are now typed
   (r258 `transmission::anti_aliasing_filter` and r237
