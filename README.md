@@ -36,6 +36,26 @@ clause II.2.3 (p. 65), the bit-position constants of the `X#` / `I#`
 `run_configuration_2` helpers that walk a caller-supplied test
 sequence through the appropriate codec configuration.
 
+Round-269 surfaces **clause 2.5.3 / Figure 13/G.722** — the
+audio-parts **group-delay-distortion versus frequency** mask — as a
+typed `transmission::group_delay_distortion` sub-module: the
+*distortion* companion of clause 2.4.3's absolute group-delay limit
+(`ABSOLUTE_GROUP_DELAY_MAX_MS`, r218). The printed staircase, with the
+minimum group delay as reference, reads 4 ms on 50–100 Hz, 1 ms on
+100–300 Hz, 0.25 ms on 300 Hz–4 kHz, 1 ms again on 4–6.4 kHz, 2 ms on
+6.4–7 kHz, open outside; ceiling only (the distortion is non-negative
+by construction). The helper trio is `classify(f)` /
+`evaluate(f, distortion_ms)` / `max_distortion_ms(f)`, with the
+stricter band owning every printed breakpoint as in the sibling
+masks. 25 new unit tests anchor every breakpoint and ceiling at its
+printed value, exercise classification across all seven bands, pin
+the breakpoint-ownership convention, sweep the 0.25 ms core as the
+staircase's global minimum, lock the shared 100 Hz / 6.4 kHz / 7 kHz
+anchors against the Figure 10 mask, and pin the structural
+alignments (4 kHz core edge = QMF band-split = half the 8 kHz
+sub-band sample clock; 7 kHz right wall = clause 2.4.1 passband
+edge; 4 ms top step = the clause 2.4.3 printed value).
+
 Round-262 surfaces **clause 2.4.2 / Figure 10/G.722** — the codec
 end-to-end **attenuation/frequency-distortion** mask — as a typed
 `transmission::attenuation_distortion` sub-module. Unlike the
@@ -360,9 +380,17 @@ Coverage:
   signal-to-total-distortion ratio (marked "under study" in the
   staged 1988 base edition). Clause 2.4.2 / Figure 10 codec
   attenuation/frequency-distortion mask is now typed by r262
-  (`transmission::attenuation_distortion`); end-to-end measurement
-  against the printed mask still requires both audio parts to be
+  (`transmission::attenuation_distortion`) and clause 2.5.3 /
+  Figure 13 group-delay-distortion mask by r269
+  (`transmission::group_delay_distortion`); end-to-end measurement
+  against the printed masks still requires both audio parts to be
   brought into the loop.
+- The remaining audio-parts clauses of 2.5: clause 2.5.4 receive-part
+  idle noise (−75 dBm0 constant), clause 2.5.5 / Figure 14
+  signal-to-total-distortion vs input level, clause 2.5.6 / Figure 15
+  signal-to-total-distortion vs frequency, clause 2.5.7 / Figure 16
+  gain variation vs input level, and the clause 2.5.9 go/return
+  crosstalk limits (clause 2.5.8 intermodulation is "under study").
 - Both clause 2.5.1 / Figure 11 (input anti-aliasing) and clause
   2.5.2 / Figure 12 (output reconstructing filter) are now typed
   (r258 `transmission::anti_aliasing_filter` and r237

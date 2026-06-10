@@ -20,6 +20,9 @@
 //! | clause 2.4.4  | Idle noise (in 50…7000 Hz, no input)         | ≤ −66 dBm0               | [`IDLE_NOISE_MAX_DBM0_NARROWBAND`] |
 //! | clause 2.4.4  | Idle noise (in 50…20000 Hz, no input)        | ≤ −60 dBm0               | [`IDLE_NOISE_MAX_DBM0_WIDEBAND`] |
 //! | clause 2.4.5  | Single-frequency noise                       | ≤ −70 dBm0               | [`SINGLE_FREQUENCY_NOISE_MAX_DBM0`] |
+//! | clause 2.5.1  | Input anti-aliasing-filter mask              | Figure 11 / G.722        | [`anti_aliasing_filter`] |
+//! | clause 2.5.2  | Output reconstructing-filter mask            | Figure 12 / G.722        | [`reconstructing_filter`] |
+//! | clause 2.5.3  | Group-delay-distortion mask                  | Figure 13 / G.722        | [`group_delay_distortion`] |
 //!
 //! The values are dimensionless constants here; the spec only nails
 //! the analogue-domain accounting (the A/D + D/A converters of
@@ -44,6 +47,7 @@ use crate::Mode;
 
 pub mod anti_aliasing_filter;
 pub mod attenuation_distortion;
+pub mod group_delay_distortion;
 pub mod reconstructing_filter;
 
 // -----------------------------------------------------------------------

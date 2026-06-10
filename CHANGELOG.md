@@ -6,6 +6,36 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- **Round-269 clause 2.5.3 / Figure 13 group-delay-distortion mask.**
+  New `transmission::group_delay_distortion` sub-module surfaces the
+  group-delay-distortion versus frequency mask of Figure 13/G.722
+  (p. 13) referenced by clause 2.5.3 (p. 13) of the staged ITU-T
+  G.722 (11/88) Recommendation — the audio-parts companion of clause
+  2.4.3's absolute group-delay limit, measured with the minimum group
+  delay as reference in the looped audio-to-audio configuration of
+  Figure 9b)/G.722 (p. 10). The printed frequency anchors (50 Hz /
+  100 Hz / 300 Hz / 4 kHz / 6.4 kHz / 7 kHz) are exposed as
+  `LOW_SHOULDER_LOW_HZ` / `CORE_LOW_HZ` / `CORE_HIGH_HZ` /
+  `HIGH_SHOULDER_HIGH_HZ` / `MASK_HIGH_EDGE_HZ` (the 50 Hz anchor
+  reuses `NOMINAL_PASSBAND_LOW_HZ`); the printed ms ceilings (0.25 /
+  1 / 2 / 4 ms) sit in `CORE_MAX_MS` / `SHOULDER_MAX_MS` /
+  `HIGH_TRANSITION_MAX_MS` / `LOW_TRANSITION_MAX_MS`. The `MaskBand`
+  enum partitions the frequency axis into seven bands (`BelowMask`,
+  `LowTransition`, `LowShoulder`, `Core`, `HighShoulder`,
+  `HighTransition`, `AboveMask`) and the helper trio `classify(f)` /
+  `evaluate(f, distortion_ms)` / `max_distortion_ms(f)` mirrors the
+  sibling masks, ceiling-only (the distortion is non-negative by
+  construction since the reference is the band minimum). 25 new unit
+  tests anchor every printed breakpoint and ceiling, exercise
+  classification across all seven bands, pin the
+  stricter-band-owns-the-breakpoint convention at every printed
+  edge, sweep the 0.25 ms core as the global staircase minimum, lock
+  the 100 Hz / 6.4 kHz / 7 kHz anchors against the Figure 10 mask's
+  breakpoint set, and pin the structural alignments (4 kHz core edge
+  = QMF band-split = `SUBBAND_SAMPLE_CLOCK_HZ` / 2; 7 kHz right wall
+  = `NOMINAL_PASSBAND_HIGH_HZ`; 4 ms top step printed equal to
+  `ABSOLUTE_GROUP_DELAY_MAX_MS`).
+
 - **Round-262 clause 2.4.2 / Figure 10 codec end-to-end
   attenuation/frequency-distortion mask.** New
   `transmission::attenuation_distortion` sub-module surfaces the
