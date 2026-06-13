@@ -25,6 +25,7 @@
 //! | clause 2.5.3  | Group-delay-distortion mask                  | Figure 13 / G.722        | [`group_delay_distortion`] |
 //! | clause 2.5.4  | Receive-audio-part idle noise (50…7000 Hz)   | ≤ −75 dBm0               | [`RECEIVE_AUDIO_PART_IDLE_NOISE_MAX_DBM0`] |
 //! | clause 2.5.5  | Signal-to-total-distortion floor vs level    | Figure 14 / G.722        | [`signal_to_distortion`] |
+//! | clause 2.5.6  | Signal-to-total-distortion floor vs frequency | Figure 15 / G.722       | [`signal_to_distortion_frequency`] |
 //!
 //! The values are dimensionless constants here; the spec only nails
 //! the analogue-domain accounting (the A/D + D/A converters of
@@ -52,6 +53,7 @@ pub mod attenuation_distortion;
 pub mod group_delay_distortion;
 pub mod reconstructing_filter;
 pub mod signal_to_distortion;
+pub mod signal_to_distortion_frequency;
 
 // -----------------------------------------------------------------------
 // Clock + sample-rate accounting (clause 1.6, page 8)

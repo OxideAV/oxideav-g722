@@ -81,6 +81,28 @@ structural alignments (right wall = overload − 1 dB; tones straddle
 the 4 kHz QMF band split; 1020 Hz reference qualifies as "about
 1 kHz"; unweighted window = the familiar 50–7000 Hz band).
 
+Round-287 surfaces **clause 2.5.6 / Figure 15/G.722** — the
+**signal-to-total-distortion-ratio versus frequency** mask — as a
+typed `transmission::signal_to_distortion_frequency` sub-module, the
+frequency-swept companion of r277's level-swept Figure 14 mask. Clause
+2.5.6 fixes the input at the −10 dBm0 nominal test level
+(`TEST_LEVEL_DBM0`, shared with clauses 2.4.2 / 2.4.3) and sweeps the
+frequency; like Figure 14 it is a *floor*. The bold staircase reads
+50 dB on 50–100 Hz, a 60 dB plateau (the global maximum) on
+100 Hz–4 kHz, a log-linear-in-frequency ramp 60 → 46.2 dB on 4–6 kHz,
+46.2 dB on 6–7 kHz, open outside the 50 Hz / 7 kHz passband walls. The
+helper trio is `classify(f)` / `evaluate(f, ratio_db)` /
+`min_ratio_db(f)` (the ramp interpolated log-linearly). 22 new unit
+tests anchor every breakpoint and gridline at its printed value,
+exercise classification across all six bands, pin the ramp's
+log-linear geometric-mean midpoint + strict descent, sweep the 60 dB
+plateau as the global maximum and the monotone-non-increasing
+post-plateau floor, pin floor-boundary / NaN / outside-mask semantics,
+and lock the structural alignments (50 Hz / 7 kHz walls = clause 2.4.1
+passband = the 50–7000 Hz measurement window; 4 kHz plateau edge = QMF
+band split; 46.2 dB high plateau just below the clause 2.5.5 "about
+6 kHz" 50 dB plateau).
+
 Round-262 surfaces **clause 2.4.2 / Figure 10/G.722** — the codec
 end-to-end **attenuation/frequency-distortion** mask — as a typed
 `transmission::attenuation_distortion` sub-module. Unlike the
@@ -410,13 +432,14 @@ Coverage:
   (`transmission::group_delay_distortion`); end-to-end measurement
   against the printed masks still requires both audio parts to be
   brought into the loop.
-- The remaining audio-parts clauses of 2.5: clause 2.5.6 / Figure 15
-  signal-to-total-distortion vs frequency, clause 2.5.7 / Figure 16
+- The remaining audio-parts clauses of 2.5: clause 2.5.7 / Figure 16
   gain variation vs input level, and the clause 2.5.9 go/return
   crosstalk limits (clause 2.5.8 intermodulation is "under study").
   Clause 2.5.4 (receive-part idle noise, −75 dBm0) and clause 2.5.5 /
-  Figure 14 (signal-to-total-distortion vs input level) are now typed
-  by r277 (`transmission::signal_to_distortion`).
+  Figure 14 (signal-to-total-distortion vs input level) are typed by
+  r277 (`transmission::signal_to_distortion`); clause 2.5.6 / Figure 15
+  (signal-to-total-distortion vs frequency) is typed by r287
+  (`transmission::signal_to_distortion_frequency`).
 - Both clause 2.5.1 / Figure 11 (input anti-aliasing) and clause
   2.5.2 / Figure 12 (output reconstructing filter) are now typed
   (r258 `transmission::anti_aliasing_filter` and r237

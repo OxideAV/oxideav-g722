@@ -6,6 +6,35 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- **Round-287 clause 2.5.6 / Figure 15 signal-to-total-distortion-vs-frequency
+  mask.** New `transmission::signal_to_distortion_frequency`
+  sub-module surfaces the signal-to-total-distortion-ratio versus
+  frequency mask of Figure 15/G.722 (p. 14) referenced by clause
+  2.5.6 (p. 14) of the staged ITU-T G.722 (11/88) Recommendation —
+  the frequency-swept companion of the r277 level-swept Figure 14
+  mask. The clause fixes the input at the −10 dBm0 nominal test level
+  (`TEST_LEVEL_DBM0`, shared with clauses 2.4.2 / 2.4.3) and sweeps
+  frequency; like Figure 14 it is a **floor**. The printed frequency
+  anchors (0.050 / 0.100 / 4 / 6 / 7 kHz) sit in `PASSBAND_LOW_HZ` /
+  `PLATEAU_LOW_KNEE_HZ` / `RAMP_START_HZ` / `RAMP_END_HZ` /
+  `PASSBAND_HIGH_HZ`, and the printed ratio gridlines (50 / 60 /
+  46.2 dB) in `FLOOR_LOW_PLATEAU_DB` / `FLOOR_MAIN_PLATEAU_DB` /
+  `FLOOR_HIGH_PLATEAU_DB`. The floor reads: 50 dB on 50–100 Hz,
+  60 dB plateau (global maximum) on 100 Hz–4 kHz, a log-linear ramp
+  60 → 46.2 dB on 4–6 kHz, 46.2 dB plateau on 6–7 kHz, open outside
+  the 50 Hz / 7 kHz passband walls. The helper trio
+  `classify(f)` / `evaluate(f, ratio_db)` / `min_ratio_db(f)`
+  mirrors the sibling masks; `min_ratio_db` interpolates the ramp
+  log-linearly in frequency. 22 new unit tests anchor every
+  breakpoint and gridline at its printed value, exercise
+  classification across all six bands, pin the ramp's log-linear
+  geometric-mean midpoint and strict descent, sweep the 60 dB main
+  plateau as the global maximum and the monotone-non-increasing
+  post-plateau floor, pin the floor boundary / NaN / outside-mask
+  semantics, and lock the structural alignments (50 Hz / 7 kHz walls
+  = clause 2.4.1 passband = the 50–7000 Hz measurement window;
+  4 kHz plateau edge = QMF band split; 46.2 dB high plateau sits
+  below the clause 2.5.5 "about 6 kHz" 50 dB plateau).
 - **Round-277 clause 2.5.4 receive-audio-part idle-noise bound +
   clause 2.5.5 / Figure 14 signal-to-total-distortion-vs-input-level
   mask.** New `transmission::signal_to_distortion` sub-module
