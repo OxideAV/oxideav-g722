@@ -103,6 +103,32 @@ passband = the 50–7000 Hz measurement window; 4 kHz plateau edge = QMF
 band split; 46.2 dB high plateau just below the clause 2.5.5 "about
 6 kHz" 50 dB plateau).
 
+Round-304 surfaces **clause 2.5.7 / Figure 16/G.722** — the
+**variation-of-gain-with-input-level** mask — as a typed
+`transmission::gain_variation` sub-module. Clause 2.5.7 measures the
+gain of a 1000 Hz tone (`MEASUREMENT_TONE_HZ`, excluding the 16 kHz
+sub-multiple) at test point B *relative to the gain at an input level
+of −10 dBm0* (`REFERENCE_LEVEL_DBM0`) and sweeps the input level.
+Unlike the single-sided distortion floors of r277 / r287 and the
+attenuation masks of r237 / r258, Figure 16 is a **two-sided symmetric
+corridor** about 0 dB that widens monotonically toward lower input
+levels (looser gain accuracy as the signal nears the noise floor): the
+bold staircase reads ±1.5 dB on −61…−56 dBm0, ±0.5 dB on −56…−46 dBm0,
+±0.3 dB on −46…+9 dBm0, open outside the −61 / +9 dBm0 input-level
+walls. The helper set is `classify(level)` /
+`evaluate(level, gain_variation_db)` / `half_width_db(level)` /
+`upper_bound_db(level)` / `lower_bound_db(level)`, each printed step
+owned by the stricter band. 20 new unit tests anchor every breakpoint
+and half-width at its printed value, exercise classification across all
+five bands, pin corridor symmetry and per-band bounds, sweep the
+monotone-tightening invariant on a 0.25 dB grid, pin corridor / NaN /
+outside-mask boundary semantics, confirm the −10 dBm0 reference sits at
+0 dB gain variation inside the tight band, and lock the structural
+alignments (the +9 dBm0 right wall is the clause 2.2 overload point
+itself — unlike Figure 14's +8 dBm0 wall; the reference level matches
+the clause 2.5.6 test level; the tone sits inside the clause 2.4.1
+passband and within 2 % of the clause 2.3 nominal reference frequency).
+
 Round-262 surfaces **clause 2.4.2 / Figure 10/G.722** — the codec
 end-to-end **attenuation/frequency-distortion** mask — as a typed
 `transmission::attenuation_distortion` sub-module. Unlike the
@@ -432,14 +458,15 @@ Coverage:
   (`transmission::group_delay_distortion`); end-to-end measurement
   against the printed masks still requires both audio parts to be
   brought into the loop.
-- The remaining audio-parts clauses of 2.5: clause 2.5.7 / Figure 16
-  gain variation vs input level, and the clause 2.5.9 go/return
-  crosstalk limits (clause 2.5.8 intermodulation is "under study").
-  Clause 2.5.4 (receive-part idle noise, −75 dBm0) and clause 2.5.5 /
-  Figure 14 (signal-to-total-distortion vs input level) are typed by
-  r277 (`transmission::signal_to_distortion`); clause 2.5.6 / Figure 15
-  (signal-to-total-distortion vs frequency) is typed by r287
-  (`transmission::signal_to_distortion_frequency`).
+- The remaining audio-parts clauses of 2.5: the clause 2.5.9 go/return
+  crosstalk limits (≤ −64 dBm0 each direction; clause 2.5.8
+  intermodulation is "under study"). Clause 2.5.4 (receive-part idle
+  noise, −75 dBm0) and clause 2.5.5 / Figure 14 (signal-to-total-distortion
+  vs input level) are typed by r277 (`transmission::signal_to_distortion`);
+  clause 2.5.6 / Figure 15 (signal-to-total-distortion vs frequency) is
+  typed by r287 (`transmission::signal_to_distortion_frequency`); and
+  clause 2.5.7 / Figure 16 (gain variation vs input level) is typed by
+  r304 (`transmission::gain_variation`).
 - Both clause 2.5.1 / Figure 11 (input anti-aliasing) and clause
   2.5.2 / Figure 12 (output reconstructing filter) are now typed
   (r258 `transmission::anti_aliasing_filter` and r237

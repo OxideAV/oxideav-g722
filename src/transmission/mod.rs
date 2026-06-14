@@ -26,6 +26,7 @@
 //! | clause 2.5.4  | Receive-audio-part idle noise (50…7000 Hz)   | ≤ −75 dBm0               | [`RECEIVE_AUDIO_PART_IDLE_NOISE_MAX_DBM0`] |
 //! | clause 2.5.5  | Signal-to-total-distortion floor vs level    | Figure 14 / G.722        | [`signal_to_distortion`] |
 //! | clause 2.5.6  | Signal-to-total-distortion floor vs frequency | Figure 15 / G.722       | [`signal_to_distortion_frequency`] |
+//! | clause 2.5.7  | Gain-variation corridor vs input level       | Figure 16 / G.722        | [`gain_variation`] |
 //!
 //! The values are dimensionless constants here; the spec only nails
 //! the analogue-domain accounting (the A/D + D/A converters of
@@ -50,6 +51,7 @@ use crate::Mode;
 
 pub mod anti_aliasing_filter;
 pub mod attenuation_distortion;
+pub mod gain_variation;
 pub mod group_delay_distortion;
 pub mod reconstructing_filter;
 pub mod signal_to_distortion;

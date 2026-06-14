@@ -6,6 +6,37 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- **Round-304 clause 2.5.7 / Figure 16 gain-variation-vs-input-level
+  mask.** New `transmission::gain_variation` sub-module surfaces the
+  variation-of-gain-with-input-level mask of Figure 16/G.722 (p. 14)
+  referenced by clause 2.5.7 (p. 14) of the staged ITU-T G.722 (11/88)
+  Recommendation. The clause measures gain at a 1000 Hz
+  (`MEASUREMENT_TONE_HZ`) sine **relative to the gain at −10 dBm0**
+  (`REFERENCE_LEVEL_DBM0`); unlike the single-sided distortion floors
+  of r277 / r287 and the attenuation masks of r237 / r258, Figure 16
+  is a **two-sided symmetric corridor** that widens toward lower input
+  levels. The printed input-level anchors (−61 / −56 / −46 / +9 dBm0)
+  sit in `INPUT_LEVEL_LOW_DBM0` / `STEP_WIDE_DBM0` / `STEP_TIGHT_DBM0`
+  / `INPUT_LEVEL_HIGH_DBM0`, and the corridor half-widths (±1.5 /
+  ±0.5 / ±0.3 dB) in `HALF_WIDTH_WIDE_DB` / `HALF_WIDTH_MID_DB` /
+  `HALF_WIDTH_TIGHT_DB`. The corridor reads: ±1.5 dB on −61…−56 dBm0,
+  ±0.5 dB on −56…−46 dBm0, ±0.3 dB on −46…+9 dBm0, open outside the
+  −61 / +9 dBm0 walls (the right wall being the clause 2.2 overload
+  point itself). The helper API is `classify(level)` /
+  `evaluate(level, gain_variation_db)` / `half_width_db(level)` /
+  `upper_bound_db(level)` / `lower_bound_db(level)` plus a `MaskBand`
+  enum (`BelowMask` / `Wide` / `Mid` / `Tight` / `AboveMask`), with
+  each printed step owned by the stricter band. 20 new unit tests
+  anchor every breakpoint and half-width at its printed value,
+  exercise classification across all five bands, pin corridor symmetry
+  and per-band bounds, sweep the monotone-tightening invariant on a
+  0.25 dB grid, pin corridor / NaN / outside-mask boundary semantics,
+  confirm the −10 dBm0 reference sits at 0 dB variation inside the
+  tight band, and lock the structural alignments (right wall = clause
+  2.2 overload point; reference level = clause 2.5.6 test level; tone
+  inside the clause 2.4.1 passband and within 2 % of the clause 2.3
+  nominal reference frequency).
+
 - **Round-287 clause 2.5.6 / Figure 15 signal-to-total-distortion-vs-frequency
   mask.** New `transmission::signal_to_distortion_frequency`
   sub-module surfaces the signal-to-total-distortion-ratio versus
