@@ -260,40 +260,35 @@ impl ReceiveQmf {
         self.xs.copy_within(0..11, 1);
         self.xd[0] = xd_new;
         self.xs[0] = xs_new;
-        // ACCUMC: WD = sum_i xd[i] * H[2i].
-        // ACCUMD: WD = sum_i xs[i] * H[2i+1].
-        // The spec uses 24-bit-or-more precision intermediates with
-        // 13-bit-scaled QMF coefficients; we use i64 to avoid any
-        // overflow risk during accumulation.
+        // ACCUMC: WD = (XD*H0)+(XD1*H2)+...+(XD11*H22)  (clause 5.2.2,
+        //         sub-block ACCUMC, p. 29).
+        // ACCUMD: WD = (XS*H1)+(XS1*H3)+...+(XS11*H23)  (sub-block
+        //         ACCUMD, p. 30).
+        // The QMF coefficients H0..H23 carry binary representation
+        // `S,-2,...,-13` (Table 10/G.722, p. 26) i.e. they are stored as
+        // `h * 2^13`; XD/XS are the integer sub-band signals. WD must
+        // be kept to `>= 2^-23` precision (ACCUMC Note 2) so we
+        // accumulate in i64.
         let mut wd_c: i64 = 0;
         let mut wd_d: i64 = 0;
         for (i, (xd_i, xs_i)) in self.xd.iter().zip(self.xs.iter()).enumerate() {
             wd_c += i64::from(*xd_i) * i64::from(QMF_TAPS[2 * i]);
             wd_d += i64::from(*xs_i) * i64::from(QMF_TAPS[2 * i + 1]);
         }
-        // XOUT1/XOUT2 = WD >> (y - 16), with y = 24 in our representation
-        // because we are using 24-bit-or-greater intermediate precision
-        // (Table 10 note) and the QMF coefficients are scaled by 2^13.
-        // Empirically the spec's shift is `>> (y-16)` after a `<< 2`
-        // implicit rescale that brings the partial product down to
-        // 16-bit range — for a 13-bit coefficient with 16-bit input the
-        // product accumulator is 29..32 bits; the spec's >> (y-16)
-        // factor with y=23 gives a 7-bit right shift but the actual
-        // gain that produces the +/-16384 range that the LIMIT block
-        // expects is a 11-bit shift (= 13 + 1 - 3 from the 2x gain
-        // factor and the half-sample-rate doubling of the synthesis
-        // filter). The receive QMF as printed in clause 4.4 eqs (4-3)
-        // and (4-4) carries a factor of 2 *outside* the sum, which is
-        // equivalent to shifting the accumulator left by 1 before the
-        // final >>11 normalisation step.
-        //
-        // In practice the safe right-shift that yields the 14-bit
-        // uniform output range described in Table 9 is `>> 11`
-        // (= 13 bits of QMF scaling, less the 2-bit gain from the
-        // doubling per eqs 4-3 / 4-4). We saturate to the 16-bit
-        // 2's-complement range described in Table 9 (-16384..=16383).
-        let xout1 = clamp_qmf(wd_c >> 11);
-        let xout2 = clamp_qmf(wd_d >> 11);
+        // XOUT1/XOUT2 = WD >> (y - 16) with y >= 23 (sub-blocks ACCUMC /
+        // ACCUMD). The receive QMF carries an explicit factor of 2
+        // *outside* the sum (eqs 4-3 / 4-4, p. 24):
+        //   xout(j)   = 2 * sum_i H2i  * xd(i)
+        //   xout(j+1) = 2 * sum_i H2i+1 * xs(i)
+        // With H stored as `h * 2^13`, the raw integer accumulator WD
+        // equals `2^13 * sum h*x`, so
+        //   xout = 2 * sum h*x = 2 * WD / 2^13 = WD / 2^12 = WD >> 12.
+        // (Equivalently WD >> (y-16) with the spec's free parameter
+        // y = 28 >= 23.) XOUT1/XOUT2 then saturate to the 15-bit
+        // 2's-complement output range -16384..=16383 (Table 9/G.722,
+        // p. 25).
+        let xout1 = clamp_qmf(wd_c >> 12);
+        let xout2 = clamp_qmf(wd_d >> 12);
         (xout1, xout2)
     }
 }
@@ -515,6 +510,49 @@ mod tests {
         // RIL = 0000 yields IL4=0, sign=0, QQ4[0]=0 -> DLT must be 0.
         let dlt = LowerDecoderState::invqal(0b0000_0000, 32);
         assert_eq!(dlt, 0);
+    }
+
+    #[test]
+    fn receive_qmf_lower_band_dc_has_unity_gain() {
+        // Spec-derived conformance check for the receive-QMF
+        // normalisation (clause 5.2.2 / eqs 4-3, 4-4, p. 24; Table 9
+        // output range, p. 25).
+        //
+        // The two QMF half-band branches each sum to exactly 0.5: the
+        // even-indexed taps H0,H2,...,H22 and the odd-indexed taps
+        // H1,H3,...,H23 each total 4096 in the Q13 representation of
+        // Table 10/G.722 (= 0.5). Feeding a constant lower-sub-band
+        // level R_L = D with R_H = 0, after the 12-tap delay line fills
+        // both branches give WD = D * 4096, and the factor-of-2 receive
+        // gain yields xout = 2 * 0.5 * D = D on both output sub-samples.
+        // A unity DC gain is therefore the exact, spec-mandated result;
+        // any other QMF shift count breaks it.
+        let even: i64 = (0..12).map(|i| i64::from(QMF_TAPS[2 * i])).sum();
+        let odd: i64 = (0..12).map(|i| i64::from(QMF_TAPS[2 * i + 1])).sum();
+        assert_eq!(even, 4096, "even QMF taps must sum to 0.5 (Q13)");
+        assert_eq!(odd, 4096, "odd QMF taps must sum to 0.5 (Q13)");
+
+        let d = 4096_i32;
+        let mut qmf = ReceiveQmf::new();
+        // Run long enough to fill the 12-deep delay lines.
+        let mut last = (0, 0);
+        for _ in 0..16 {
+            last = qmf.step(d, 0);
+        }
+        assert_eq!(
+            last,
+            (d, d),
+            "receive QMF must have unity DC gain on the lower sub-band"
+        );
+
+        // The higher sub-band alone (R_L = 0) splits with the QMF
+        // band-difference sign: xout(j) = -R_H, xout(j+1) = +R_H.
+        let mut qmf_h = ReceiveQmf::new();
+        let mut last_h = (0, 0);
+        for _ in 0..16 {
+            last_h = qmf_h.step(0, d);
+        }
+        assert_eq!(last_h, (-d, d), "receive QMF higher-band DC split");
     }
 
     #[test]

@@ -20,7 +20,7 @@ registry.
 | Path         | Coverage   | Notes                                                                                  |
 | ------------ | ---------- | -------------------------------------------------------------------------------------- |
 | Encoder      | structural | Transmit 24-tap QMF (§3.1), BLOCK 1L QUANTL + BLOCK 1H QUANTH forward quantizers, shared predictor. |
-| Decoder      | structural | Lower (4/5/6-bit modes 1/2/3) + higher (2-bit) inverse ADPCM, 24-tap receive QMF, LIMIT saturation. |
+| Decoder      | structural | Lower (4/5/6-bit modes 1/2/3) + higher (2-bit) inverse ADPCM, 24-tap receive QMF (unity-DC-gain normalised per eqs 4-3/4-4), LIMIT saturation. |
 | Test vectors | partial    | Synthesised Appendix II.3.2 third input sequence (`test_harness::appendix_ii`); ITU disk corpus not staged. |
 
 ### Implemented

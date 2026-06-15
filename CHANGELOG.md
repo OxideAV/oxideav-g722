@@ -4,6 +4,27 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Round-313 receive-QMF normalisation off by a factor of two.** The
+  decoder receive QMF (`decoder::ReceiveQmf::step`) right-shifted the
+  ACCUMC / ACCUMD accumulator by 11 bits, producing reconstructed
+  output samples twice as loud as the Recommendation prescribes. Per
+  the staged 1988 base edition (`docs/audio/g722/T-REC-G.722-198811-S.pdf`)
+  the synthesis output is `xout = 2 · Σ h·x` (eqs 4-3 / 4-4, p. 24)
+  and sub-blocks ACCUMC / ACCUMD (p. 29-30) define
+  `XOUT = WD >> (y-16)`. With the QMF coefficients stored as `h · 2^13`
+  (Table 10/G.722, p. 26) the integer accumulator `WD = 2^13 · Σ h·x`,
+  so `xout = 2 · WD / 2^13 = WD >> 12` — not `>> 11`. The shift is now
+  `>> 12`. A new spec-derived conformance test
+  (`receive_qmf_lower_band_dc_has_unity_gain`) pins the fix: the even
+  and odd QMF half-band branches each sum to exactly 0.5 (4096 in Q13),
+  so a constant lower-sub-band level must pass through the receive QMF
+  with unity DC gain — an exact, mask-free invariant the previous
+  shift violated. The earlier range-only decoder tests did not catch
+  the gain error because the 2× output still fell inside the ±16384
+  LIMIT range.
+
 ### Added
 
 - **Round-304 clause 2.5.7 / Figure 16 gain-variation-vs-input-level
