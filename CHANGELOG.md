@@ -6,6 +6,36 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- **Round-326 lower-sub-band forward quantizer (QUANTL) off-by-one in the
+  decision-level index.** `encoder::LowerEncoderState::quantize_lower`
+  evaluated the upper decision level for candidate row `m_L = k` as
+  `(Q6(k−1) << 3) * DETL` instead of the Recommendation's
+  `(Q6(k) << 3) * DETL`. The QUANTL decision table (clause 6.2.1.1,
+  p. 42 of the staged `docs/audio/g722/T-REC-G.722-198811-S.pdf`) gives
+  row `m_L = k` the *upper* decision level `LDU(k) = (Q6(k) << 3) * DETL`
+  for `k = 1..29` (with `LDU(30) = +∞`) and lower level
+  `LDL(k) = LDU(k−1)`, `LDL(1) = 0`, where `Q6(k)` is the 1-indexed
+  Table 14/G.722 entry (`Q6(1) = 35`, p. 35). The off-by-one shifted
+  every selected `m_L` one row too high and made `m_L = 1` unreachable,
+  so the encoder emitted a wrong 6-bit `I_L` codeword (and a wrong
+  `W_L` scale-factor-adaptation input) — invisible to encode→decode
+  self-round-trip tests but a bit-exactness defect against a conformant
+  decoder. The loop now indexes `Q6[k]` directly; at reset
+  (`DETL = 32`) a zero-magnitude difference correctly selects `m_L = 4`
+  (rows 1..3 collapse to `LDL == LDU == 0` and are excluded by Note 2),
+  not `m_L = 5`. Two new spec-derived tests pin the corrected boundary:
+  `lower_forward_quantizer_emits_mil_1_when_ldu_1_does_not_collapse`
+  (at `DETL = 128`, `LDU(1) = 1` so `WD = 0` reaches `m_L = 1`) and
+  `lower_forward_quantizer_boundary_is_strict_below_ldu` (Note 1: `WD`
+  exactly on `LDU(1)` advances to `m_L = 2`). The pre-existing reset
+  test was updated from the wrong `m_L = 5` to the spec-correct
+  `m_L = 4`. The higher-sub-band QUANTH decision level is unaffected:
+  it correctly uses the Table 14 higher-band entry `Q2(1) = 564`
+  (`src/tables.rs::Q2_LEVEL_1`), not `Q6(1)` — the QUANTH body text's
+  "(Q6(1) << 3)" (p. 51) is a known spec misprint contradicted by its
+  own "Q2 is obtained from Table 14" note and the Table 14 higher-band
+  sub-table.
+
 - **Round-322 transmit-QMF normalisation off by a factor of four.** The
   encoder transmit (analysis) QMF (`encoder::TransmitQmf::step`)
   right-shifted the ACCUMA / ACCUMB accumulators by 11 bits, producing

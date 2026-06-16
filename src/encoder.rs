@@ -139,6 +139,13 @@ impl LowerEncoderState {
     /// `>> 15` of the `*` operator collapses small thresholds to 0),
     /// that row is excluded from selection.
     ///
+    /// Per the QUANTL decision table (clause 6.2.1.1, p. 42), row
+    /// `m_L = k` has upper decision level `LDU(k) = (Q6(k) << 3) *
+    /// DETL` for `k = 1..29` (with `LDU(30) = +∞`, the "otherwise"
+    /// row) and lower decision level `LDL(k) = LDU(k-1)` (with
+    /// `LDL(1) = 0`). `Q6(k)` is the 1-indexed Table 14/G.722 entry,
+    /// so the array access is `Q6[k]` (index 0 is the sentinel).
+    ///
     /// `IL` is then taken from Table 16/G.722 using `(SIL, MIL)`.
     fn quantize_lower(el: i32, detl: i32) -> u8 {
         // SIL = EL >> 15  (sign bit; -1 for negative, 0 otherwise).
@@ -147,14 +154,19 @@ impl LowerEncoderState {
         // the spec's S.-1.-2... representation).
         let wd = if sil == 0 { el } else { (32767 - el) & 32767 };
 
-        // Walk LDU upward; pick the first m_L whose LDU > WD, with
-        // the LDL == LDU exclusion handled implicitly by the strict
-        // inequality + the prior row's LDU being the current row's
-        // LDL (so equal thresholds are skipped automatically).
+        // Walk LDU(k) upward and pick the first non-excluded row whose
+        // LDU(k) > WD. The LDL == LDU exclusion of Note 2 is handled by
+        // `ldu != prev_ldu`, where `prev_ldu` is the previous row's
+        // LDU(k-1) = the current row's LDL(k) (so equal adjacent
+        // thresholds are skipped). The strict `wd < ldu` implements
+        // Note 1 (WD exactly on LDU advances to the larger MIL).
         let mut mil: usize = 30; // "otherwise" row of the decision table.
-        let mut prev_ldu = 0_i32;
-        for k in 1..=29 {
-            let ldu = mul(Q6[k - 1] << 3, detl);
+        let mut prev_ldu = 0_i32; // LDL(1) = (Q6(0) << 3) * DETL = 0.
+
+        // Iterate Q6(1..=29) (index 0 is the sentinel); `k` is the
+        // 1-based row m_L whose upper decision level is LDU(k).
+        for (k, &q6_k) in Q6.iter().enumerate().take(30).skip(1) {
+            let ldu = mul(q6_k << 3, detl);
             if ldu != prev_ldu && wd < ldu {
                 mil = k;
                 break;
@@ -541,11 +553,54 @@ mod tests {
         assert_eq!(s, 0);
         // The chosen m_L must be a row Table 16 actually assigns.
         assert_eq!(code, crate::tables::ILP6_FROM_ML[m]);
-        // Specifically, at DETL = 32 the integer arithmetic of QUANTL
-        // collapses the LDU thresholds for m_L = 1..4 to zero, so
-        // the first unambiguous row is m_L = 5 (the first whose
-        // `(Q6 << 3) * DETL` survives the >> 15 truncation).
-        assert_eq!(m, 5);
+        // At DETL = 32 the QUANTL upper decision level LDU(k) =
+        // (Q6(k) << 3) * DETL evaluates (with the spec `*` operator's
+        // `>> 15` truncation) to 0 for k = 1..3 and to 1 for k = 4:
+        //   k=1: (35  << 3) * 32 >> 15 = 8960  >> 15 = 0
+        //   k=2: (72  << 3) * 32 >> 15 = 18432 >> 15 = 0
+        //   k=3: (110 << 3) * 32 >> 15 = 28160 >> 15 = 0
+        //   k=4: (150 << 3) * 32 >> 15 = 38400 >> 15 = 1
+        // Rows m_L = 1..3 collapse to LDL == LDU == 0 and are excluded
+        // by Note 2; row m_L = 4 is the first with LDL(4)=0 != LDU(4)=1,
+        // so WD = 0 (0 <= 0 < 1) selects m_L = 4.
+        assert_eq!(m, 4);
+    }
+
+    #[test]
+    fn lower_forward_quantizer_emits_mil_1_when_ldu_1_does_not_collapse() {
+        // Regression guard for the QUANTL decision-level indexing
+        // (clause 6.2.1.1, p. 42): row m_L = k uses the *upper* level
+        // LDU(k) = (Q6(k) << 3) * DETL, i.e. the 1-indexed Table 14
+        // entry Q6(k). With a large enough DETL the first level no
+        // longer collapses to 0 under the spec `*` operator's >> 15
+        // truncation, so a zero-magnitude difference must select the
+        // smallest row m_L = 1 — which an off-by-one (Q6(k-1)) would
+        // wrongly report as m_L = 2.
+        //
+        //   DETL = 128: LDU(1) = (35 << 3) * 128 >> 15
+        //                      = 280 * 128 >> 15 = 35840 >> 15 = 1
+        // WD = 0 satisfies 0 <= 0 < 1, so MIL = 1.
+        let code = LowerEncoderState::quantize_lower(0, 128);
+        let m = crate::tables::IL6_FROM_IL6[code as usize] as usize;
+        assert_eq!(crate::tables::SIL_FROM_IL6[code as usize], 0);
+        assert_eq!(m, 1, "QUANTL must reach m_L = 1 once LDU(1) > 0");
+        assert_eq!(code, crate::tables::ILP6_FROM_ML[1]);
+    }
+
+    #[test]
+    fn lower_forward_quantizer_boundary_is_strict_below_ldu() {
+        // Note 1 of the QUANTL table (p. 42): "If WD falls exactly on a
+        // higher decision level, LDU, the larger adjacent MIL is used."
+        // At DETL = 128, LDU(1) = 1 (see the test above). A magnitude
+        // whose WD lands exactly on LDU(1) = 1 must therefore advance to
+        // m_L = 2 rather than staying on m_L = 1. WD = 1 is produced by
+        // e_L = 1 (SIL = 0, WD = EL = 1).
+        let on_boundary = LowerEncoderState::quantize_lower(1, 128);
+        let m_on = crate::tables::IL6_FROM_IL6[on_boundary as usize] as usize;
+        assert_eq!(m_on, 2, "WD exactly on LDU(1) must advance to m_L = 2");
+        // Just below the boundary (WD = 0) stays on m_L = 1.
+        let below = LowerEncoderState::quantize_lower(0, 128);
+        assert_eq!(crate::tables::IL6_FROM_IL6[below as usize] as usize, 1);
     }
 
     #[test]
