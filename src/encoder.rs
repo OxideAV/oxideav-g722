@@ -61,11 +61,16 @@ impl TransmitQmf {
     /// `x_in(j-1)` (older) and `x_second` is `x_in(j)` (newer).
     ///
     /// Eqs 3-3 / 3-4 give x_A and x_B; eqs 3-1 / 3-2 then form the
-    /// sub-band outputs. The right-shift by 11 mirrors the decoder's
-    /// receive-QMF normalisation: the QMF coefficients are scaled by
-    /// 2^13 (Table 11 note) and eqs 3-1 / 3-2 have no leading "× 2"
-    /// factor (unlike the receive-side eqs 4-3 / 4-4), so the
-    /// transmit normalisation is 2 bits less than the receive one.
+    /// sub-band outputs. The right-shift by 13 follows the LOWT / HIGHT
+    /// sub-blocks of clause 5.2.1 (p. 28): `XL = (XA + XB) >> (y - 15)`,
+    /// `XH = (XA - XB) >> (y - 15)`. The QMF coefficients are scaled by
+    /// 2^13 (Table 10 note, p. 26), so the ACCUMA / ACCUMB accumulators
+    /// equal `2^13 · Σ h·x`. With the spec's free parameter y = 28
+    /// (matching the decoder's receive-QMF `(y - 16) = 12`-bit shift in
+    /// clause 5.2.2, ACCUMC / ACCUMD) the analysis normalisation is the
+    /// `(y - 15) = 13`-bit right shift below. That is exactly one bit
+    /// more than the receive QMF, because eqs 3-1 / 3-2 have no leading
+    /// "× 2" factor whereas the receive-side eqs 4-3 / 4-4 do.
     fn step(&mut self, x_first: i32, x_second: i32) -> (i32, i32) {
         // Shift the delay lines by one 8 kHz period (= two 16 kHz
         // samples). The freshest 16 kHz sample x_in(j) lands in
@@ -84,15 +89,14 @@ impl TransmitQmf {
             xa += i64::from(*ev) * i64::from(QMF_TAPS[2 * i]);
             xb += i64::from(*od) * i64::from(QMF_TAPS[2 * i + 1]);
         }
-        // Normalise by 2^13 (coefficient scale) − 2 (the receive QMF
-        // doubles its accumulators per eqs 4-3 / 4-4 whereas the
-        // transmit QMF does not); net `>> 11`.
-        let xa = (xa >> 11) as i32;
-        let xb = (xb >> 11) as i32;
-
-        // x_L = x_A + x_B  (eq 3-1), x_H = x_A − x_B  (eq 3-2).
-        let xl = clamp_qmf(xa + xb);
-        let xh = clamp_qmf(xa - xb);
+        // x_L = x_A + x_B  (eq 3-1), x_H = x_A − x_B  (eq 3-2), then the
+        // LOWT / HIGHT normalisation `>> (y - 15) = >> 13` (clause 5.2.1,
+        // p. 28) undoes the 2^13 coefficient scale of Table 10. The sum
+        // / difference are formed *before* the shift, exactly as the
+        // LOWT / HIGHT sub-blocks specify, then saturated to the
+        // 14-bit-uniform Table 9 range.
+        let xl = clamp_qmf(((xa + xb) >> 13) as i32);
+        let xh = clamp_qmf(((xa - xb) >> 13) as i32);
         (xl, xh)
     }
 }
@@ -441,6 +445,42 @@ mod tests {
     use super::*;
     use crate::Decoder;
     use crate::Mode;
+
+    #[test]
+    fn transmit_qmf_dc_splits_with_unity_lower_band_gain() {
+        // Spec-derived conformance check for the transmit (analysis) QMF
+        // normalisation (clause 5.2.1, LOWT / HIGHT sub-blocks, p. 28:
+        // `XL = (XA + XB) >> (y - 15)`, `XH = (XA - XB) >> (y - 15)`;
+        // Table 10 note p. 26: coefficients scaled by 2^13).
+        //
+        // The even-indexed taps H0,H2,...,H22 and the odd-indexed taps
+        // H1,H3,...,H23 each sum to 4096 in Q13 (= 0.5). For a constant
+        // 16 kHz input x_in = D, once the 12-deep delay lines fill, the
+        // ACCUMA / ACCUMB accumulators are XA = XB = 4096·D, so
+        //   XL = (XA + XB) >> 13 = (8192·D) >> 13 = D   (DC → lower band)
+        //   XH = (XA - XB) >> 13 = 0                    (no higher-band DC)
+        // A unity lower-sub-band DC gain is the exact, spec-mandated
+        // result; the previous `>> 11` produced 4·D, saturating XL at the
+        // LOWT clamp. The shift must be `>> (y - 15) = >> 13`, exactly one
+        // bit more than the receive QMF's `>> (y - 16) = >> 12`.
+        let even: i64 = (0..12).map(|i| i64::from(QMF_TAPS[2 * i])).sum();
+        let odd: i64 = (0..12).map(|i| i64::from(QMF_TAPS[2 * i + 1])).sum();
+        assert_eq!(even, 4096, "even QMF taps must sum to 0.5 (Q13)");
+        assert_eq!(odd, 4096, "odd QMF taps must sum to 0.5 (Q13)");
+
+        let d = 4096_i32;
+        let mut qmf = TransmitQmf::new();
+        // Run long enough to fill the 12-deep delay lines.
+        let mut last = (0, 0);
+        for _ in 0..16 {
+            last = qmf.step(d, d);
+        }
+        assert_eq!(
+            last,
+            (d, 0),
+            "transmit QMF must split DC into the lower band with unity gain"
+        );
+    }
 
     #[test]
     fn encoder_emits_one_octet_per_two_samples() {

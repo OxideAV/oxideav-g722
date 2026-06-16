@@ -19,7 +19,7 @@ registry.
 
 | Path         | Coverage   | Notes                                                                                  |
 | ------------ | ---------- | -------------------------------------------------------------------------------------- |
-| Encoder      | structural | Transmit 24-tap QMF (§3.1), BLOCK 1L QUANTL + BLOCK 1H QUANTH forward quantizers, shared predictor. |
+| Encoder      | structural | Transmit 24-tap QMF (§3.1; unity-DC-gain normalised per the LOWT/HIGHT `>> (y−15)` shift of §5.2.1), BLOCK 1L QUANTL + BLOCK 1H QUANTH forward quantizers, shared predictor. |
 | Decoder      | structural | Lower (4/5/6-bit modes 1/2/3) + higher (2-bit) inverse ADPCM, 24-tap receive QMF (unity-DC-gain normalised per eqs 4-3/4-4), LIMIT saturation. |
 | Test vectors | partial    | Synthesised Appendix II.3.2 third input sequence (`test_harness::appendix_ii`); ITU disk corpus not staged. |
 
@@ -28,7 +28,11 @@ registry.
 - §1.3 Modes 1 / 2 / 3 (Table 1) with mid-stream mode switching.
 - §3.1 / §5.2.1 transmit + §5.2.2 receive 24-tap symmetric QMF
   (Table 11/G.722 coefficients) splitting / recombining the 16 kHz
-  uniform-PCM stream and the two 8 kHz sub-bands.
+  uniform-PCM stream and the two 8 kHz sub-bands. Both banks carry the
+  spec-exact, mask-free unity-DC-gain normalisation: the analysis
+  LOWT/HIGHT shift is `>> (y−15) = >> 13` (one bit more than the
+  synthesis `>> (y−16) = >> 12`, reflecting the receive QMF's leading
+  factor of 2 in eqs 4-3/4-4 that the transmit QMF lacks).
 - §3.3 BLOCK 1L QUANTL (60-level lower-sub-band forward adaptive log
   quantizer) + BLOCK 1H QUANTH (4-level higher-sub-band quantizer).
 - §1.4.4 multiplexer packing `(I_H, I_L)` into the 64 kbit/s octet.

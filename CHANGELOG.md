@@ -6,6 +6,30 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- **Round-322 transmit-QMF normalisation off by a factor of four.** The
+  encoder transmit (analysis) QMF (`encoder::TransmitQmf::step`)
+  right-shifted the ACCUMA / ACCUMB accumulators by 11 bits, producing
+  sub-band signals four times larger than the Recommendation
+  prescribes (so any non-trivial input clamped at the LOWT / HIGHT
+  ±16384 limit). This is the analysis-side counterpart of the r313
+  receive-QMF fix. Per the staged 1988 base edition
+  (`docs/audio/g722/T-REC-G.722-198811-S.pdf`) the analysis outputs are
+  `xL = xA + xB` and `xH = xA − xB` (eqs 3-1 / 3-2, p. 15) with **no**
+  leading "× 2" factor (unlike the receive eqs 4-3 / 4-4), and the
+  LOWT / HIGHT sub-blocks (clause 5.2.1, p. 28) define
+  `XL = (XA + XB) >> (y − 15)`, `XH = (XA − XB) >> (y − 15)`. With the
+  QMF coefficients stored as `h · 2^13` (Table 10/G.722 note, p. 26)
+  the accumulators equal `2^13 · Σ h·x`, so the correct normalisation
+  is `>> (y − 15) = >> 13` (the decoder's matching `>> (y − 16) = >> 12`
+  fixes `y = 28`) — exactly one bit *more* than the receive QMF, not
+  two bits *less*. The shift is now `>> 13`. A new spec-derived
+  conformance test (`transmit_qmf_dc_splits_with_unity_lower_band_gain`)
+  pins the fix: the even and odd QMF half-band branches each sum to
+  exactly 0.5 (4096 in Q13), so a constant 16 kHz input must split into
+  the lower sub-band with unity DC gain (`XL = D`, `XH = 0`) — an exact
+  invariant the previous `>> 11` (which gave `XL = 4·D`) violated. The
+  earlier range-only encoder tests did not catch the gain error because
+  the saturating LOWT / HIGHT clamp masked it on non-DC inputs.
 - **Round-313 receive-QMF normalisation off by a factor of two.** The
   decoder receive QMF (`decoder::ReceiveQmf::step`) right-shifted the
   ACCUMC / ACCUMD accumulator by 11 bits, producing reconstructed
