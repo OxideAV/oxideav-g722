@@ -7,21 +7,30 @@ Pure-Rust SB-ADPCM codec for ITU-T G.722 wideband speech / audio at
 
 Both the **encoder** and **decoder** sides of G.722 are implemented
 against the staged Recommendation ITU-T G.722 (11/88). The
-sub-band ADPCM loops run end-to-end and encode → decode round-trips
-stay inside a tight silence envelope across all three modes. The
-implementation is **structurally complete but not yet bit-exact
-validated** against the ITU digital test sequences (see *Test
-vectors* below).
+sub-band ADPCM loops run end-to-end across all three modes and are
+**bit-exact-validated against golden vectors derived independently
+from the Recommendation's own per-block pseudo-code** (sub-blocks
+INVQAL / INVQBL / INVQAH / PARREC / UPPOL1 / UPPOL2 / UPZERO /
+FILTEP / FILTEZ / LOGSCL / SCALEL / SCALEH and the analysis /
+synthesis QMF). Decode and encode golden vectors, per-codeword
+reset-state inverse-quantizer anchors (every Table 14 / 17 / 18 /
+19 / 6 row), and a single-step hand-derivation anchor are all pinned
+in `src/conformance.rs`. The clause-2.4.2 attenuation/frequency mask
+is **operationally enforced on the real codec** across all three
+modes via the `transmission::measure_tone_response` helper. The one
+remaining gap is the ITU disk-distributed digital test sequences
+(`T2R1.COD` / `T2R2.COD` + `*.RC*` comparison files), which are not
+staged under `docs/` (see *Test vectors* below).
 
 The crate is reachable through its direct `Encoder` / `Decoder` API
 only; it does not register a trait-surface codec in the runtime
 registry.
 
-| Path         | Coverage   | Notes                                                                                  |
-| ------------ | ---------- | -------------------------------------------------------------------------------------- |
-| Encoder      | structural | Transmit 24-tap QMF (§3.1; unity-DC-gain normalised per the LOWT/HIGHT `>> (y−15)` shift of §5.2.1), BLOCK 1L QUANTL (decision level `LDU(k) = (Q6(k) << 3)·DETL`, 1-indexed per Table 14) + BLOCK 1H QUANTH (decision level `Q2(1) = 564`) forward quantizers, shared predictor. |
-| Decoder      | structural | Lower (4/5/6-bit modes 1/2/3) + higher (2-bit) inverse ADPCM, 24-tap receive QMF (unity-DC-gain normalised per eqs 4-3/4-4), LIMIT saturation. |
-| Test vectors | partial    | Synthesised Appendix II.3.2 third input sequence (`test_harness::appendix_ii`); transmit↔receive predictor-state lockstep conformance test (encoder's embedded local decoder is bit-exact against the standalone decoder over a 4096-step wide-range sub-band sweep); ITU disk corpus not staged. |
+| Path         | Coverage         | Notes                                                                                  |
+| ------------ | ---------------- | -------------------------------------------------------------------------------------- |
+| Encoder      | bit-exact (spec) | Transmit 24-tap QMF (§3.1; unity-DC-gain normalised per the LOWT/HIGHT `>> (y−15)` shift of §5.2.1), BLOCK 1L QUANTL (decision level `LDU(k) = (Q6(k) << 3)·DETL`, 1-indexed per Table 14) + BLOCK 1H QUANTH (decision level `Q2(1) = 564`) forward quantizers, shared predictor. Pinned against a spec-pseudo-code golden octet stream. |
+| Decoder      | bit-exact (spec) | Lower (4/5/6-bit modes 1/2/3) + higher (2-bit) inverse ADPCM, 24-tap receive QMF (unity-DC-gain normalised per eqs 4-3/4-4), LIMIT saturation. Pinned against per-mode golden PCM vectors + per-codeword reset-state inverse-quantizer anchors. |
+| Test vectors | spec / partial   | `src/conformance.rs` golden decode + encode vectors (all modes), per-codeword inverse-quantizer anchors, single-step hand derivation; Appendix II.3.2 third input sequence (`test_harness::appendix_ii`); transmit↔receive predictor-state lockstep over a 4096-step sweep; clause-2.4.2 mask driven on the real codec. The ITU disk corpus (`T2R1.COD` / `T2R2.COD` / `*.RC*`) is not staged. |
 
 ### Implemented
 
@@ -74,10 +83,13 @@ registry.
 
 ### Not yet implemented
 
-- Bit-exact validation against the ITU disk-distributed
-  Configuration-2 input sequences (`T2R1.COD` / `T2R2.COD`) and
-  comparison output files (`T3L*.RC*` / `T3H*.RC*`) — these corpora
-  are not staged under `docs/`.
+- Validation against the **ITU disk-distributed** Configuration-2 input
+  sequences (`T2R1.COD` / `T2R2.COD`) and comparison output files
+  (`T3L*.RC*` / `T3H*.RC*`) — these corpora are not staged under
+  `docs/`. The codec is already pinned bit-exact against golden vectors
+  derived independently from the Recommendation pseudo-code
+  (`src/conformance.rs`), but the official ITU test-sequence corpus
+  would add an external cross-check.
 - Appendix III / IV packet-loss concealment.
 - Annex B superwideband extension (50–14 000 Hz).
 - Annex D stereo extension.

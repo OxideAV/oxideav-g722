@@ -6,6 +6,30 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- **Round-338 bit-exact conformance vectors + clause-2.4.2 mask driven
+  on the real codec.** New `conformance` test module pins the codec's
+  exact integer output against golden vectors hand-derived from the
+  staged ITU-T G.722 (11/88) Recommendation pseudo-code (sub-blocks
+  INVQAL / INVQBL / INVQAH / PARREC / UPPOL1 / UPPOL2 / UPZERO /
+  FILTEP / FILTEZ / LOGSCL / SCALEL / SCALEH / RECONS / LIMIT plus the
+  analysis / synthesis QMF of clauses 5.2.1 / 5.2.2): per-mode golden
+  decode PCM vectors, a golden encode octet stream, per-codeword
+  reset-state inverse-quantizer anchors covering every Table 14 / 17 /
+  18 / 19 / 6 row, and a single-step hand-derivation anchor (octet 0x7F
+  → DL/DH). Until now the only end-to-end checks were loose silence /
+  energy envelopes and a predictor-state lockstep invariant; none
+  pinned actual sample values, so a sign or shift-count regression that
+  stayed inside the envelope (the r313 / r322 QMF-normalisation and
+  r326 QUANTL off-by-one defect class) could pass unnoticed.
+  Additionally, `transmission::measure_tone_response` +
+  `ToneResponseReport` drive a sinusoid end-to-end through encode →
+  decode and the clause 2.4.2 / Figure 10/G.722 attenuation/frequency
+  mask is now enforced on the production paths across all three modes
+  (1020 Hz reference tone + a passband sweep). Every golden integer was
+  produced by stepping the Recommendation's own printed pseudo-code; no
+  external reference implementation, reference C source, or online
+  resource was consulted. Suite: 314 → 328 tests.
+
 - **Round-332 transmit↔receive predictor-state lockstep conformance
   test.** New `encoder_local_decoder_tracks_standalone_decoder_in_lockstep`
   pins the structural identity that the SB-ADPCM block diagrams (Figures
