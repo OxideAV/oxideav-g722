@@ -16,8 +16,7 @@
 //! Because the codec is fully deterministic integer arithmetic, an exact
 //! match against these vectors is a true conformance check on the whole
 //! pipeline — not the loose silence / energy envelope the older tests
-//! assert. No external reference implementation, reference C source, or
-//! online resource was consulted: the vectors come only from the
+//! assert. The vectors come only from the
 //! Recommendation's printed pseudo-code and the tables of
 //! [`crate::tables`] (themselves transcribed from the printed
 //! normative tables of `docs/audio/g722/T-REC-G.722-198811-S.pdf`).
