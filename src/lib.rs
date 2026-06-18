@@ -61,6 +61,8 @@
 #![warn(missing_docs)]
 
 mod aux_data;
+#[cfg(test)]
+mod conformance;
 mod decoder;
 mod encoder;
 mod predictor;
