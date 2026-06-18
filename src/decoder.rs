@@ -67,6 +67,13 @@ impl LowerDecoderState {
         self.s.reset();
     }
 
+    /// Snapshot the predictor + scale-factor state (clauses 3.4 / 3.5 /
+    /// 3.6) for the transmit↔receive lockstep invariant.
+    #[cfg(test)]
+    pub(crate) fn snapshot(&self) -> crate::predictor::PredictorSnapshot {
+        self.s.snapshot()
+    }
+
     /// INVQAL — clause 6.2.1.2 (page 37). Compute DLT from the
     /// truncated 4-bit IL using Q4 / scale factor DETL.
     fn invqal(il: u32, detl: i32) -> i32 {
@@ -173,6 +180,13 @@ impl HigherDecoderState {
 
     pub(crate) fn reset(&mut self) {
         self.s.reset();
+    }
+
+    /// Snapshot the predictor + scale-factor state (clauses 3.4 / 3.5 /
+    /// 3.6) for the transmit↔receive lockstep invariant.
+    #[cfg(test)]
+    pub(crate) fn snapshot(&self) -> crate::predictor::PredictorSnapshot {
+        self.s.snapshot()
     }
 
     /// INVQAH — higher sub-band inverse quantizer (page 46).
@@ -402,6 +416,19 @@ impl Decoder {
         let mut out = alloc::vec![0_i32; input.len() * 2];
         self.decode_into(input, &mut out);
         out
+    }
+
+    /// Snapshot the lower- and higher-sub-band predictor + scale-factor
+    /// state (clauses 3.4 / 3.5 / 3.6). Used by the transmit↔receive
+    /// lockstep conformance test; not part of the public bitstream API.
+    #[cfg(test)]
+    pub(crate) fn predictor_snapshots(
+        &self,
+    ) -> (
+        crate::predictor::PredictorSnapshot,
+        crate::predictor::PredictorSnapshot,
+    ) {
+        (self.lower.snapshot(), self.higher.snapshot())
     }
 
     /// Read-only access to the current bit-rate mode.

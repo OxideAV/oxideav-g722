@@ -261,4 +261,45 @@ impl SubBandState {
         self.dlt[1] = dlt;
         self.dlt[0] = dlt;
     }
+
+    /// Capture the full adaptive predictor + scale-factor state.
+    ///
+    /// Used to assert the spec's structural identity between the
+    /// transmit-path *local decoder* and the receive-path decoder: per
+    /// the SB-ADPCM block diagrams (Figures 4/6/7/G.722) the encoder
+    /// embeds a decoder whose predictor / scale-factor adaptation is the
+    /// **same** loop the standalone decoder runs (clauses 3.4 / 3.5 /
+    /// 3.6), driven by the identical truncated code-word. Two states that
+    /// have processed the same code-word stream must therefore be
+    /// bit-identical; this snapshot makes that invariant checkable
+    /// without exposing the private fields outside the crate.
+    #[cfg(test)]
+    pub(crate) fn snapshot(&self) -> PredictorSnapshot {
+        PredictorSnapshot {
+            dlt: self.dlt,
+            plt: self.plt,
+            rlt: self.rlt,
+            al1: self.al1,
+            al2: self.al2,
+            bl: self.bl,
+            nbl: self.nbl,
+            detl: self.detl,
+        }
+    }
+}
+
+/// An immutable copy of a [`SubBandState`]'s adaptive state, used to
+/// compare the encoder's embedded local-decoder loop against the
+/// standalone decoder's loop (see [`SubBandState::snapshot`]).
+#[cfg(test)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct PredictorSnapshot {
+    pub(crate) dlt: [i32; 7],
+    pub(crate) plt: [i32; 3],
+    pub(crate) rlt: [i32; 3],
+    pub(crate) al1: i32,
+    pub(crate) al2: i32,
+    pub(crate) bl: [i32; 7],
+    pub(crate) nbl: i32,
+    pub(crate) detl: i32,
 }

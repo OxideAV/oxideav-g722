@@ -21,7 +21,7 @@ registry.
 | ------------ | ---------- | -------------------------------------------------------------------------------------- |
 | Encoder      | structural | Transmit 24-tap QMF (§3.1; unity-DC-gain normalised per the LOWT/HIGHT `>> (y−15)` shift of §5.2.1), BLOCK 1L QUANTL (decision level `LDU(k) = (Q6(k) << 3)·DETL`, 1-indexed per Table 14) + BLOCK 1H QUANTH (decision level `Q2(1) = 564`) forward quantizers, shared predictor. |
 | Decoder      | structural | Lower (4/5/6-bit modes 1/2/3) + higher (2-bit) inverse ADPCM, 24-tap receive QMF (unity-DC-gain normalised per eqs 4-3/4-4), LIMIT saturation. |
-| Test vectors | partial    | Synthesised Appendix II.3.2 third input sequence (`test_harness::appendix_ii`); ITU disk corpus not staged. |
+| Test vectors | partial    | Synthesised Appendix II.3.2 third input sequence (`test_harness::appendix_ii`); transmit↔receive predictor-state lockstep conformance test (encoder's embedded local decoder is bit-exact against the standalone decoder over a 4096-step wide-range sub-band sweep); ITU disk corpus not staged. |
 
 ### Implemented
 
@@ -44,6 +44,17 @@ registry.
 - The Table 17 / 18 / 19 / 20 inverse-quantizer tables made
   bit-faithful to the printed spec, including the documented
   structural anomalies.
+- A transmit↔receive **predictor-state lockstep** conformance check.
+  Per the SB-ADPCM block diagrams (Figures 4 / 6 / 7) the transmit path
+  embeds a local decoder whose predictor + scale-factor adaptation
+  (clauses 3.4 / 3.5 / 3.6) is the same loop the standalone receive
+  decoder runs, driven by the identical truncated code-word; the test
+  drives both via the Appendix-II QMF-bypass entry points on a
+  4096-step wide-range pseudo-random sub-band signal and asserts the
+  two lower- and higher-sub-band predictor states stay bit-identical at
+  every step. This guards the entire shared adaptation loop (PARREC /
+  UPPOL1 / UPPOL2 / UPZERO / LOGSCL / SCALEL) against the silent
+  divergences the loose silence/energy-envelope tests cannot see.
 - `transmission` module: the normative limits of clause 2 (clock
   rates, sample-clock tolerance, overload point, passband, group
   delay, idle / single-frequency noise) as typed constants citing

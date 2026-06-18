@@ -128,6 +128,13 @@ impl LowerEncoderState {
         self.s.reset();
     }
 
+    /// Snapshot the embedded local-decoder predictor state (clauses
+    /// 3.4 / 3.5 / 3.6) for the transmit↔receive lockstep invariant.
+    #[cfg(test)]
+    pub(crate) fn snapshot(&self) -> crate::predictor::PredictorSnapshot {
+        self.s.snapshot()
+    }
+
     /// 60-level forward quantizer (BLOCK 1L / QUANTL, clause 6.2.1.1
     /// pseudo-code, p. 42).
     ///
@@ -259,6 +266,13 @@ impl HigherEncoderState {
 
     pub(crate) fn reset(&mut self) {
         self.s.reset();
+    }
+
+    /// Snapshot the embedded local-decoder predictor state (clauses
+    /// 3.4 / 3.5 / 3.6) for the transmit↔receive lockstep invariant.
+    #[cfg(test)]
+    pub(crate) fn snapshot(&self) -> crate::predictor::PredictorSnapshot {
+        self.s.snapshot()
     }
 
     /// 4-level forward quantizer (BLOCK 1H / QUANTH, clause 6.2.2.1).
@@ -449,6 +463,20 @@ impl Encoder {
     /// Number of samples held over for the next call (0 or 1).
     pub fn pending_samples(&self) -> usize {
         usize::from(self.pending.is_some())
+    }
+
+    /// Snapshot the embedded local-decoder lower- and higher-sub-band
+    /// predictor + scale-factor state (clauses 3.4 / 3.5 / 3.6). Used by
+    /// the transmit↔receive lockstep conformance test; not part of the
+    /// public bitstream API.
+    #[cfg(test)]
+    pub(crate) fn predictor_snapshots(
+        &self,
+    ) -> (
+        crate::predictor::PredictorSnapshot,
+        crate::predictor::PredictorSnapshot,
+    ) {
+        (self.lower.snapshot(), self.higher.snapshot())
     }
 }
 
@@ -756,5 +784,63 @@ mod tests {
             energy > 1_000_000,
             "Mode-2 output energy {energy} too low — predictor likely dead"
         );
+    }
+
+    #[test]
+    fn encoder_local_decoder_tracks_standalone_decoder_in_lockstep() {
+        // Structural conformance invariant of SB-ADPCM (Figures 4/6/7
+        // of the staged G.722 Recommendation): the transmit path embeds
+        // a *local decoder* whose adaptive predictor + scale-factor loop
+        // (clauses 3.4 / 3.5 / 3.6) is the SAME loop the standalone
+        // receive decoder runs, driven by the IDENTICAL truncated
+        // code-word. In Mode 1 the decoder's predictor-update path uses
+        // INVQAL on the 4-bit-truncated I_L (eq 3-11) — bit-for-bit what
+        // the encoder feeds its own embedded loop — and the higher band
+        // feeds its 2-bit I_H back with no truncation at all. So after
+        // processing the same (I_L, I_H) stream, the encoder's internal
+        // predictor state and the decoder's predictor state MUST be
+        // bit-identical at every step. This catches any divergence in
+        // the shared `predictor` module (PARREC / UPPOL1 / UPPOL2 /
+        // UPZERO / LOGSCL / SCALEL) that the loose silence/energy
+        // envelope tests cannot see.
+        //
+        // The QMF-bypass entry points (Appendix II Configuration 1 / 2)
+        // let the test drive the two ADPCM loops directly with chosen
+        // sub-band sample pairs, isolating the predictor identity from
+        // the QMF.
+        let mut enc = Encoder::new();
+        let mut dec = Decoder::new(Mode::Mode1);
+
+        // A deterministic pseudo-random sub-band signal that sweeps a
+        // wide magnitude range so the scale factor climbs and falls and
+        // the quantizer visits many decision rows. Kept inside the
+        // ±16384 sub-band range of the Configuration-1 inputs.
+        let mut state: u32 = 0x1234_5678;
+        for n in 0..4096 {
+            state = state.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+            let xl = ((state >> 17) as i32 & 0x7FFF) - 16384;
+            state = state.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+            let xh = ((state >> 17) as i32 & 0x7FFF) - 16384;
+
+            // Encoder produces the multiplexed octet; recover I_L / I_H.
+            let octet = enc.encode_subband_pair(xl, xh);
+            let il = octet & 0x3F;
+            let ih = (octet >> 6) & 0x3;
+
+            // Standalone decoder consumes the same code-words.
+            let _ = dec.decode_subband_pair(il, ih);
+
+            let (enc_lo, enc_hi) = enc.predictor_snapshots();
+            let (dec_lo, dec_hi) = dec.predictor_snapshots();
+
+            assert_eq!(
+                enc_lo, dec_lo,
+                "lower-sub-band predictor state diverged at step {n}"
+            );
+            assert_eq!(
+                enc_hi, dec_hi,
+                "higher-sub-band predictor state diverged at step {n}"
+            );
+        }
     }
 }

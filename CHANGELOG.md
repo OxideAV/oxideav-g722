@@ -4,6 +4,34 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- **Round-332 transmit↔receive predictor-state lockstep conformance
+  test.** New `encoder_local_decoder_tracks_standalone_decoder_in_lockstep`
+  pins the structural identity that the SB-ADPCM block diagrams (Figures
+  4 / 6 / 7 of the staged `docs/audio/g722/T-REC-G.722-198811-S.pdf`)
+  mandate: the transmit path embeds a *local decoder* whose adaptive
+  predictor + scale-factor loop (clauses 3.4 / 3.5 / 3.6) is the **same**
+  loop the standalone receive decoder runs, driven by the **identical**
+  truncated code-word. In Mode 1 the decoder's predictor-update path
+  uses INVQAL on the 4-bit-truncated `I_L` (eq 3-11) — bit-for-bit what
+  the encoder feeds its own embedded loop — and the higher band feeds
+  its 2-bit `I_H` back untruncated, so after processing the same
+  `(I_L, I_H)` stream the encoder's and decoder's predictor states must
+  be bit-identical at every step. The test drives both through the
+  Appendix-II QMF-bypass entry points (`encode_subband_pair` /
+  `decode_subband_pair`) on a 4096-step wide-range pseudo-random
+  sub-band signal and asserts equality of the full lower- and
+  higher-sub-band predictor snapshots (`dlt` / `plt` / `rlt` / `al1` /
+  `al2` / `bl` / `nbl` / `detl`) every step. This guards the shared
+  `predictor` module (PARREC / UPPOL1 / UPPOL2 / UPZERO / LOGSCL /
+  SCALEL) against silent divergences the loose silence/energy-envelope
+  tests cannot see — the same class of latent defect the r326 QUANTL
+  off-by-one and r313 / r322 QMF normalisation fixes were. Adds a
+  test-only `PredictorSnapshot` + `SubBandState::snapshot` plus
+  `#[cfg(test)]` snapshot accessors on the encoder / decoder sub-band
+  states; no change to the production decode/encode paths.
+
 ### Fixed
 
 - **Round-326 lower-sub-band forward quantizer (QUANTL) off-by-one in the
