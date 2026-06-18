@@ -222,3 +222,100 @@ fn encode_then_decode_mode1_round_trips_through_golden_octets() {
         );
     }
 }
+
+// -----------------------------------------------------------------------
+// Per-codeword reset-state inverse-quantizer anchors.
+//
+// At the reset condition the predictor estimate S_L / S_H is zero
+// (clauses 6.2.1.3 / 6.2.1.4 reset rows), so the sub-band-bypass output
+// R = LIMIT(0 + D) equals the inverse-quantizer difference D itself.
+// Sweeping every code-word through the bypass entry point therefore
+// reads out the *whole* inverse-quantizer mapping (sign table × output
+// magnitude table × the spec `*` operator's `>> 15` scaling) as a single
+// vector, giving every Table 14 / 17 / 18 / 19 row a bit-exact golden
+// value. Each constant below is hand-derived as `DETx * (±(QQ[mag] <<
+// 3)) >> 15` with `DETL = 32` (lower) / `DETH = 8` (higher) at reset.
+// -----------------------------------------------------------------------
+
+/// Reset-state Mode-1 lower-sub-band output `R_L` (= `DL`) for the 64
+/// 6-bit `I_LR` code-words, hand-derived from INVQBL (Table 18/G.722 →
+/// `(SIL, IL6)`, `DL = 32 * ±(QQ6(IL6) << 3) >> 15`). Code-words
+/// 0b000000..0b000011 substitute to `(SIL=-1, IL6=1)` → -1 per the
+/// Table 18 footnote.
+const GOLDEN_INVQBL6_RESET: [i32; 64] = [
+    -1, -1, -1, -1, -25, -22, -19, -17, -15, -14, -12, -11, -10, -10, -9, -8, -8, -7, -6, -6, -5,
+    -5, -4, -4, -4, -3, -3, -2, -2, -2, -2, -1, 24, 21, 18, 16, 14, 13, 11, 10, 9, 9, 8, 7, 7, 6,
+    5, 5, 4, 4, 3, 3, 3, 2, 2, 1, 1, 1, 1, 0, 0, 0, -1, -1,
+];
+
+/// Reset-state Mode-2 lower-sub-band output `R_L` (= `DL`) for the 32
+/// truncated 5-bit code-words, hand-derived from the 5-bit INVQBL path
+/// (Table 19/G.722 → `(SIL, IL5)`, `DL = 32 * ±(QQ5(IL5) << 3) >> 15`).
+/// Indexed by the 5-bit `RIL` (= `I_LR >> 1`); code-words 0b00000 /
+/// 0b00001 substitute to `(SIL=-1, IL5=1)` → -1 per the Table 19
+/// footnote.
+const GOLDEN_INVQBL5_RESET: [i32; 32] = [
+    -1, -1, -23, -18, -14, -12, -10, -8, -7, -6, -5, -4, -3, -3, -2, -1, 22, 17, 13, 11, 9, 7, 6,
+    5, 4, 3, 2, 2, 1, 0, 0, -1,
+];
+
+/// Reset-state higher-sub-band output `R_H` (= `D_H`) for the four 2-bit
+/// `I_H` code-words, hand-derived from INVQAH (Table 6/G.722 →
+/// `(SIH, IH2)`, `D_H = 8 * ±(QQ2(IH2) << 3) >> 15`).
+const GOLDEN_INVQAH_RESET: [i32; 4] = [-2, -1, 1, 0];
+
+#[test]
+fn mode1_lower_inverse_quantizer_reset_anchors_every_codeword() {
+    for (code, &golden) in GOLDEN_INVQBL6_RESET.iter().enumerate() {
+        let mut dec = Decoder::new(Mode::Mode1);
+        let (rl, _) = dec.decode_subband_pair(code as u8, 0);
+        assert_eq!(
+            rl, golden,
+            "INVQBL Mode-1 reset output for I_LR={code:#08b} diverged"
+        );
+    }
+}
+
+#[test]
+fn mode2_lower_inverse_quantizer_reset_anchors_every_codeword() {
+    for (ril5, &golden) in GOLDEN_INVQBL5_RESET.iter().enumerate() {
+        // The Mode-2 receiver consumes the 5-bit RIL = I_LR >> 1, so
+        // feed I_LR = ril5 << 1 (the discarded LSB is irrelevant).
+        let mut dec = Decoder::new(Mode::Mode2);
+        let (rl, _) = dec.decode_subband_pair((ril5 << 1) as u8, 0);
+        assert_eq!(
+            rl, golden,
+            "INVQBL Mode-2 reset output for RIL5={ril5:#07b} diverged"
+        );
+    }
+}
+
+#[test]
+fn higher_inverse_quantizer_reset_anchors_every_codeword() {
+    for (code, &golden) in GOLDEN_INVQAH_RESET.iter().enumerate() {
+        let mut dec = Decoder::new(Mode::Mode1);
+        let (_, rh) = dec.decode_subband_pair(0, code as u8);
+        assert_eq!(
+            rh, golden,
+            "INVQAH reset output for I_H={code:#04b} diverged"
+        );
+    }
+}
+
+#[test]
+fn inverse_quantizer_reset_anchors_are_sign_symmetric() {
+    // Structural sanity on the hand-derived anchors: the Mode-1 6-bit
+    // table's positive half (SIL=0, code-words 0b100000..0b111101) and
+    // negative half (SIL=-1) must mirror in sign for matching magnitude
+    // rows. We check the largest-magnitude pair (m_L = 30): code 0b000100
+    // (SIL=-1) and 0b100000 (SIL=0).
+    assert_eq!(GOLDEN_INVQBL6_RESET[0b000100], -25);
+    assert_eq!(GOLDEN_INVQBL6_RESET[0b100000], 24);
+    // The small asymmetry (-25 vs +24) is the spec's two's-complement
+    // magnitude folding (`(32767 - EL) & 32767` on the encode side, and
+    // the `>> 15` truncation toward negative infinity on decode), not a
+    // transcription error — both are exact outputs of `32 * ±(3101 << 3)
+    // >> 15` for the two sign branches.
+    assert_eq!((32 * -(3101 << 3)) >> 15, -25);
+    assert_eq!((32 * (3101 << 3)) >> 15, 24);
+}
