@@ -1563,6 +1563,69 @@ mod tests {
         );
     }
 
+    /// FNV-1a hash of the concatenated RL# then RH# wire words (each as
+    /// a little-endian `u16`). A compact bit-exact fingerprint of a full
+    /// Configuration-2 run that lets the whole 16384-sample artificial
+    /// sequence be anchored without a 16384-element literal.
+    fn fnv1a_config2(out: &Configuration2Output) -> u64 {
+        let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+        for w in out.rl_hash.iter().chain(out.rh_hash.iter()) {
+            for b in (*w as u16).to_le_bytes() {
+                h ^= b as u64;
+                h = h.wrapping_mul(0x0000_0100_0000_01b3);
+            }
+        }
+        h
+    }
+
+    #[test]
+    fn appendix_ii_full_sequence_checksum_is_bit_exact_per_mode() {
+        // Anchor the WHOLE 16384-sample artificial Configuration-2
+        // sequence (clause II.3.2) through the receive path, per mode,
+        // via a bit-exact FNV-1a fingerprint of the RL# / RH# output.
+        // The 512-sample golden vectors above pin the leading window
+        // element-by-element; this extends the bit-exact guarantee to
+        // the entire spec-derivable receive corpus — including the
+        // suppressed-codeword wrap sub-sequences (56)–(64) of Table
+        // II-4 that the short window does not reach — at negligible cost.
+        use super::appendix_ii::{build_i_hash_stream, ARTIFICIAL_SEQUENCE_LEN};
+        let stream = build_i_hash_stream();
+        assert_eq!(stream.len(), ARTIFICIAL_SEQUENCE_LEN);
+        let cases = [
+            (Mode::Mode1, 0xdb6a_4ea6_424f_328a_u64),
+            (Mode::Mode2, 0x153d_9c6a_5e2d_a104_u64),
+            (Mode::Mode3, 0x533d_2ce7_f57d_3e29_u64),
+        ];
+        for (mode, golden) in cases {
+            let mut dec = Decoder::new(mode);
+            let out = run_configuration_2(&mut dec, &stream);
+            assert_eq!(out.rl_hash.len(), ARTIFICIAL_SEQUENCE_LEN);
+            assert_eq!(out.rh_hash.len(), ARTIFICIAL_SEQUENCE_LEN);
+            assert_eq!(
+                fnv1a_config2(&out),
+                golden,
+                "full-sequence RL#/RH# checksum diverged for {mode:?}"
+            );
+        }
+        // The three modes must produce distinct fingerprints (different
+        // lower-band bit usage over the full sequence).
+        let h1 = fnv1a_config2(&run_configuration_2(
+            &mut Decoder::new(Mode::Mode1),
+            &stream,
+        ));
+        let h2 = fnv1a_config2(&run_configuration_2(
+            &mut Decoder::new(Mode::Mode2),
+            &stream,
+        ));
+        let h3 = fnv1a_config2(&run_configuration_2(
+            &mut Decoder::new(Mode::Mode3),
+            &stream,
+        ));
+        assert_ne!(h1, h2);
+        assert_ne!(h2, h3);
+        assert_ne!(h1, h3);
+    }
+
     #[test]
     fn appendix_ii_modes_are_pairwise_distinct_on_lower_band_golden() {
         // The three modes consume a different number of lower-band bits,
