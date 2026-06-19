@@ -1381,7 +1381,7 @@ mod tests {
     // sequence — the disk-distributed `T2R1.COD` / `T2R2.COD` corpus is
     // not staged) is driven through `run_configuration_2` and the
     // reconstructed RL# / RH# wire words are pinned bit-exact for the
-    // first 256-sample window of the `I#` payload. Because the codec is
+    // first 512-sample window of the `I#` payload. Because the codec is
     // fully deterministic integer arithmetic and the input is entirely
     // spec-defined, an exact match here is a true conformance anchor on
     // the whole receive path (INVQBL / INVQAL / INVQAH → PARREC →
