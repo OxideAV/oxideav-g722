@@ -6,6 +6,25 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- **Round-344 bit-exact RL#/RH# conformance for the synthesisable
+  Appendix-II.3.2 sequence.** The artificial Configuration-2 input
+  sequence (clause II.3.2 — the only spec-derivable ITU receive-path
+  test sequence, since the disk-distributed `T2R1.COD` / `T2R2.COD`
+  corpus is not staged) was previously only checked for *determinism*
+  end-to-end; a decoder regression that altered the output identically
+  across runs would pass that check. It is now anchored bit-exact:
+  per-mode golden RL#/RH# wire-word vectors for the leading 512-sample
+  window (the window crosses the first Table II-4 lower-LSB
+  sub-sequence boundary so the lower-band predictor genuinely adapts,
+  and the higher band sweeps the full LIMIT range), plus a per-mode
+  FNV-1a checksum anchor over the *entire* 16384-sample sequence
+  (reaching the suppressed-codeword wrap sub-sequences (56)–(64) of
+  Table II-4 that the short window does not cover). The three modes are
+  asserted pairwise-distinct on both the windowed vectors and the
+  full-sequence fingerprints. Every value is the deterministic output
+  of the receive path driven by the spec's own `lower_msb_bit` /
+  `lower_lsb5` / `higher_*` generators; no external reference, no disk
+  corpus, no online resource was consulted.
 - **Round-338 bit-exact conformance vectors + clause-2.4.2 mask driven
   on the real codec.** New `conformance` test module pins the codec's
   exact integer output against golden vectors hand-derived from the
