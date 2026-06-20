@@ -629,6 +629,87 @@ pub mod appendix_ii {
         out.resize(out.len() + COD_RSS_MARKER_WORDS, 0x0001_i16);
         out
     }
+
+    // ---------------------------------------------------------------
+    // Table II-3/G.722 — overflow Configuration-1 input sequence
+    // (clause II.3.2 p. 67, "sequence for testing overflow controls
+    //  in the ADPCM encoders")
+    // ---------------------------------------------------------------
+
+    /// Total length, in 16-bit words, of the Table II-3/G.722 overflow
+    /// Configuration-1 input sequence (clause II.3.2 p. 67: "Total
+    /// length of sequence … 768").
+    pub const OVERFLOW_SEQUENCE_LEN: usize = 768;
+
+    /// Build the Table II-3/G.722 overflow Configuration-1 input
+    /// sequence as a vector of `XL` (= `XH`) sub-band sample values.
+    ///
+    /// Unlike the Table II-2/G.722 tone / d.c. / white-noise sequence
+    /// (whose individual sample amplitudes are *not* enumerated in the
+    /// printed Recommendation — only the segment frequencies / lengths
+    /// are), the Table II-3 overflow sequence is **fully enumerated**
+    /// from the staged 11/88 PDF (p. 67) and is therefore synthesisable
+    /// without the ITU disk distribution. Its segments are:
+    ///
+    /// | Segment                              | Length (words) |
+    /// | ------------------------------------ | -------------- |
+    /// | `-16384, +16383` repeated            | 639            |
+    /// | `0, -10000, -8192`                   | 3 (one shot)   |
+    /// | `-16384, +16383, -16384` repeated    | 126            |
+    ///
+    /// "repeated 639" means the 2-value pattern `-16384, +16383`
+    /// appears 639 times (1278 words); "repeated 126" means the
+    /// 3-value pattern `-16384, +16383, -16384` appears 126 times
+    /// (378 words). With the 3-word one-shot middle segment the total
+    /// is `1278 + 3 + 378 = 1659`? — no: the spec's "Length" column
+    /// counts the **number of repetitions of the listed pattern**, and
+    /// the segment lengths sum to the stated 768 words only when the
+    /// "Length" is read as the word count of each segment. Reading the
+    /// table that way gives `639 + 3 + 126 = 768` words, i.e. each
+    /// listed pattern is emitted cyclically until its segment word
+    /// count is reached. This generator follows the latter reading (the
+    /// one consistent with the printed 768 total): segment 1 emits 639
+    /// words cycling `[-16384, +16383]`, segment 2 emits the literal
+    /// `[0, -10000, -8192]`, segment 3 emits 126 words cycling
+    /// `[-16384, +16383, -16384]`.
+    ///
+    /// The full-scale ±16384 swings drive the largest possible
+    /// prediction errors, exercising the saturation / overflow control
+    /// of the pole- and zero-section output computations (clauses
+    /// 3.6.1 / 3.6.2, BLOCK 4L / 4H of clauses 6.2.1.4 / 6.2.2.4) that
+    /// the spec calls out for this sequence.
+    pub fn build_overflow_xl_sequence() -> alloc::vec::Vec<i16> {
+        let mut out = alloc::vec::Vec::with_capacity(OVERFLOW_SEQUENCE_LEN);
+        // Segment 1: 639 words cycling `-16384, +16383`.
+        let seg1 = [-16384_i16, 16383];
+        for i in 0..639 {
+            out.push(seg1[i % seg1.len()]);
+        }
+        // Segment 2: the literal `0, -10000, -8192`.
+        out.extend_from_slice(&[0_i16, -10000, -8192]);
+        // Segment 3: 126 words cycling `-16384, +16383, -16384`.
+        let seg3 = [-16384_i16, 16383, -16384];
+        for i in 0..126 {
+            out.push(seg3[i % seg3.len()]);
+        }
+        out
+    }
+
+    /// Build the Table II-3/G.722 overflow Configuration-1 input as a
+    /// vector of `X#` wire words (Figure II-1/G.722, p. 63): each `XL`
+    /// sample value is left-shifted one bit to free the LSB for the
+    /// RSS (which is cleared for every data word — `X# = XL << 1`).
+    ///
+    /// This is the inverse of the [`super::infa`] sub-block's `XL =
+    /// X# >> 1` extraction (clause II.2.3 p. 65), so feeding the result
+    /// through [`super::run_configuration_1`] recovers the original
+    /// `XL` / `XH` and drives both sub-band encoders.
+    pub fn build_overflow_x_hash_stream() -> alloc::vec::Vec<i16> {
+        build_overflow_xl_sequence()
+            .into_iter()
+            .map(|xl| ((xl as i32) << 1) as i16)
+            .collect()
+    }
 }
 
 // -----------------------------------------------------------------------
@@ -1684,6 +1765,52 @@ mod tests {
         }
         for w in &out.rh_hash[trailer_start..] {
             assert_eq!(*w as u16, 0x0001, "RSS trailer RH# must be non-valid");
+        }
+    }
+
+    #[test]
+    fn appendix_ii_overflow_sequence_length_and_segments_match_table_ii_3() {
+        // Table II-3/G.722 (p. 67): the overflow Configuration-1 input
+        // sequence has a total length of 768 16-bit words, made of
+        // three segments: 639 words cycling `-16384, +16383`; the
+        // literal `0, -10000, -8192`; then 126 words cycling
+        // `-16384, +16383, -16384`.
+        use super::appendix_ii::{build_overflow_xl_sequence, OVERFLOW_SEQUENCE_LEN};
+        let seq = build_overflow_xl_sequence();
+        assert_eq!(seq.len(), OVERFLOW_SEQUENCE_LEN, "Table II-3 total length");
+        assert_eq!(OVERFLOW_SEQUENCE_LEN, 768);
+
+        // Segment 1 (639 words): strict `-16384, +16383` alternation.
+        for (i, &v) in seq[..639].iter().enumerate() {
+            let expect = if i % 2 == 0 { -16384 } else { 16383 };
+            assert_eq!(v, expect, "segment-1 word {i}");
+        }
+        // Segment 2 (3 words): the literal middle burst.
+        assert_eq!(&seq[639..642], &[0, -10000, -8192], "segment-2 literal");
+        // Segment 3 (126 words): `-16384, +16383, -16384` cycle.
+        let seg3 = [-16384_i16, 16383, -16384];
+        for (i, &v) in seq[642..].iter().enumerate() {
+            assert_eq!(v, seg3[i % 3], "segment-3 word {i}");
+        }
+    }
+
+    #[test]
+    fn appendix_ii_overflow_x_hash_round_trips_through_infa() {
+        // The X# wire word is `XL << 1` (RSS cleared); INFA recovers
+        // `XL = X# >> 1` (clause II.2.3 p. 65). The two must be exact
+        // inverses for every word of the overflow sequence, including
+        // the full-scale ±16384 swings that occupy the whole 16-bit
+        // word after the shift.
+        use super::appendix_ii::{build_overflow_x_hash_stream, build_overflow_xl_sequence};
+        use super::infa;
+        let xl = build_overflow_xl_sequence();
+        let x_hash = build_overflow_x_hash_stream();
+        assert_eq!(xl.len(), x_hash.len());
+        for (i, (&xl_i, &xw)) in xl.iter().zip(x_hash.iter()).enumerate() {
+            let got = infa(xw);
+            assert!(!got.rs, "RSS must be clear for data word {i}");
+            assert_eq!(got.xl, i32::from(xl_i), "INFA XL mismatch at {i}");
+            assert_eq!(got.xh, got.xl, "Configuration-1 sets XH = XL");
         }
     }
 
