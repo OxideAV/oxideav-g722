@@ -6,6 +6,28 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- **Round-349 bit-exact ENCODER conformance on the synthesisable
+  Table II-3/G.722 overflow Configuration-1 vector.** Every prior
+  Appendix-II conformance anchor targeted the *receive* path
+  (Configuration 2): the artificial II.3.2 sequence bypasses the
+  forward quantizer and difference computation, so the encoder's
+  overflow / saturation control was untested against a spec-derived
+  vector. Table II-3 (clause II.3.2 p. 67, "sequence for testing
+  overflow controls in the ADPCM encoders") is the one Configuration-1
+  input that is *fully enumerated* in the printed 11/88 PDF — 768
+  full-scale words (`-16384, +16383` ×639 / `0, -10000, -8192` /
+  `-16384, +16383, -16384` ×126) — and therefore synthesisable without
+  the disk-distributed corpus. `test_harness::appendix_ii` now exposes
+  `build_overflow_xl_sequence` / `build_overflow_x_hash_stream`
+  (X# = XL << 1, the exact inverse of INFA's `XL = X# >> 1`), and the
+  sequence is driven through the encoder via `run_configuration_1` with
+  a 32-word leading golden vector + a full-768-word FNV-1a checksum
+  (`0x21ba1840cd7af612`). The full-scale ±16384 swings force the
+  largest prediction errors, exercising the saturating pole/zero-section
+  output computations of clauses 3.6.1 / 3.6.2 (BLOCK 4L / 4H). A
+  companion test pins the Configuration-1 RSS reset-slot behaviour
+  (non-valid `I# = 0x0001`, post-reset encoder matches a fresh one).
+  No external reference, disk corpus, or online resource was consulted.
 - **Round-344 bit-exact RL#/RH# conformance for the synthesisable
   Appendix-II.3.2 sequence.** The artificial Configuration-2 input
   sequence (clause II.3.2 — the only spec-derivable ITU receive-path

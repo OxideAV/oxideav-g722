@@ -17,10 +17,15 @@ reset-state inverse-quantizer anchors (every Table 14 / 17 / 18 /
 19 / 6 row), and a single-step hand-derivation anchor are all pinned
 in `src/conformance.rs`. The clause-2.4.2 attenuation/frequency mask
 is **operationally enforced on the real codec** across all three
-modes via the `transmission::measure_tone_response` helper. The one
-remaining gap is the ITU disk-distributed digital test sequences
-(`T2R1.COD` / `T2R2.COD` + `*.RC*` comparison files), which are not
-staged under `docs/` (see *Test vectors* below).
+modes via the `transmission::measure_tone_response` helper. Both
+spec-enumerated synthesisable Appendix-II sequences are now driven
+bit-exact end-to-end: the II.3.2 artificial Configuration-2 sequence
+through the **receive** path and the Table II-3 overflow Configuration-1
+sequence through the **transmit** path (the latter exercising the
+pole/zero-section overflow controls). The one remaining gap is the ITU
+disk-distributed digital test sequences (`T2R1.COD` / `T2R2.COD` +
+`*.RC*` comparison files, plus the non-enumerated Table II-2 tone
+input), which are not staged under `docs/` (see *Test vectors* below).
 
 The crate is reachable through its direct `Encoder` / `Decoder` API
 only; it does not register a trait-surface codec in the runtime
@@ -30,7 +35,7 @@ registry.
 | ------------ | ---------------- | -------------------------------------------------------------------------------------- |
 | Encoder      | bit-exact (spec) | Transmit 24-tap QMF (§3.1; unity-DC-gain normalised per the LOWT/HIGHT `>> (y−15)` shift of §5.2.1), BLOCK 1L QUANTL (decision level `LDU(k) = (Q6(k) << 3)·DETL`, 1-indexed per Table 14) + BLOCK 1H QUANTH (decision level `Q2(1) = 564`) forward quantizers, shared predictor. Pinned against a spec-pseudo-code golden octet stream. |
 | Decoder      | bit-exact (spec) | Lower (4/5/6-bit modes 1/2/3) + higher (2-bit) inverse ADPCM, 24-tap receive QMF (unity-DC-gain normalised per eqs 4-3/4-4), LIMIT saturation. Pinned against per-mode golden PCM vectors + per-codeword reset-state inverse-quantizer anchors. |
-| Test vectors | spec / partial   | `src/conformance.rs` golden decode + encode vectors (all modes), per-codeword inverse-quantizer anchors, single-step hand derivation; the **synthesisable Appendix II.3.2 artificial Configuration-2 sequence** now driven end-to-end through the receive path with **bit-exact RL#/RH# golden vectors** for the leading 512-sample window (per mode) plus a full-16384-sample per-mode FNV-1a checksum anchor (`test_harness`); transmit↔receive predictor-state lockstep over a 4096-step sweep; clause-2.4.2 mask driven on the real codec. The ITU disk corpus (`T2R1.COD` / `T2R2.COD` / `*.RC*`) is not staged. |
+| Test vectors | spec / partial   | `src/conformance.rs` golden decode + encode vectors (all modes), per-codeword inverse-quantizer anchors, single-step hand derivation; the **synthesisable Appendix II.3.2 artificial Configuration-2 sequence** driven end-to-end through the receive path with **bit-exact RL#/RH# golden vectors** for the leading 512-sample window (per mode) plus a full-16384-sample per-mode FNV-1a checksum anchor; the **synthesisable Table II-3/G.722 overflow Configuration-1 sequence** (768 full-scale words) driven through the **encoder** with a bit-exact I# golden window + full-sequence checksum, exercising the pole/zero-section overflow controls (`test_harness`); transmit↔receive predictor-state lockstep over a 4096-step sweep; clause-2.4.2 mask driven on the real codec. The ITU disk corpus (`T2R1.COD` / `T2R2.COD` / `*.RC*`) is not staged. |
 
 ### Implemented
 
@@ -79,17 +84,28 @@ registry.
   `run_configuration_2` walkers. `test_harness::appendix_ii`
   synthesises the third Configuration-2 input sequence procedurally
   from the printed bit patterns (the two encoder-derived sequences and
-  the comparison output files are not synthesisable from the PDF).
+  the comparison output files are not synthesisable from the PDF), and
+  the **Table II-3/G.722 overflow Configuration-1 input** (the one
+  encoder-side test sequence fully enumerated in the printed PDF: 768
+  full-scale words) via `build_overflow_xl_sequence` /
+  `build_overflow_x_hash_stream`, driven through the encoder with a
+  bit-exact I# golden anchor.
 
 ### Not yet implemented
 
-- Validation against the **ITU disk-distributed** Configuration-2 input
-  sequences (`T2R1.COD` / `T2R2.COD`) and comparison output files
-  (`T3L*.RC*` / `T3H*.RC*`) — these corpora are not staged under
-  `docs/`. The codec is already pinned bit-exact against golden vectors
-  derived independently from the Recommendation pseudo-code
-  (`src/conformance.rs`), but the official ITU test-sequence corpus
-  would add an external cross-check.
+- Validation against the **ITU disk-distributed** sequences and their
+  comparison output files: the Table II-2 tone / d.c. / white-noise
+  Configuration-1 input (whose per-sample amplitudes are *not*
+  enumerated in the printed PDF — only the segment frequencies /
+  lengths), the encoder-derived Configuration-2 inputs (`T2R1.COD` /
+  `T2R2.COD`), and the comparison files (`T3L*.RC*` / `T3H*.RC*`).
+  These corpora are not staged under `docs/`. The codec is already
+  pinned bit-exact against golden vectors derived independently from
+  the Recommendation pseudo-code (`src/conformance.rs`) and against the
+  two spec-enumerated synthesisable sequences (the II.3.2 artificial
+  Configuration-2 receive sequence and the Table II-3 overflow
+  Configuration-1 transmit sequence); the disk corpus would add an
+  external cross-check.
 - Appendix III / IV packet-loss concealment.
 - Annex B superwideband extension (50–14 000 Hz).
 - Annex D stereo extension.
