@@ -1814,6 +1814,117 @@ mod tests {
         }
     }
 
+    /// FNV-1a hash of an `I#` output word stream (each word as a
+    /// little-endian `u16`). A compact bit-exact fingerprint of a full
+    /// Configuration-1 encoder run without a 768-element literal.
+    fn fnv1a_i_hash(words: &[i16]) -> u64 {
+        let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+        for w in words {
+            for b in (*w as u16).to_le_bytes() {
+                h ^= b as u64;
+                h = h.wrapping_mul(0x0000_0100_0000_01b3);
+            }
+        }
+        h
+    }
+
+    /// Golden leading-window `I#` output (first 32 words) for the
+    /// Table II-3/G.722 overflow Configuration-1 input driven through
+    /// the transmit-path encoder from the reset state.
+    ///
+    /// The input alternates the full-scale words `XL = -16384` and
+    /// `XL = +16383`. From reset (s_L = 0, DETL = 32) the first
+    /// difference `e_L = -16384` is the largest-magnitude negative
+    /// difference, so QUANTL emits the maximum-magnitude negative
+    /// lower-band codeword `I_L = 0b000100` (the first valid code-word
+    /// above the suppressed 0b000000..0b000011 range; Table 18/G.722
+    /// → SIL = -1, IL6 = 1). Packed into `I#` (Figure II-2, bits 8..13)
+    /// that is `0x0400 = 1024` with `I_H = 0`. The `+16383` words drive
+    /// the opposite-polarity saturation path, yielding the `-24576`
+    /// (`0xA000`: `I_H = 2`, `I_L = 0b100000` = max positive lower
+    /// code-word) companion word. The alternation continues while the
+    /// pole / zero predictor coefficients track the full-scale square
+    /// wave under the overflow-control saturation of clauses 3.6.1 /
+    /// 3.6.2 (BLOCK 4L / 4H).
+    const GOLDEN_OVERFLOW_I_HASH_HEAD: [i16; 32] = [
+        1024, -24576, 1024, -24576, 1024, -24576, 1024, -24576, 1024, -24576, 1024, -24576, 1024,
+        -24576, 1024, -24576, 1024, -24576, 1024, -24576, 1024, -24576, 1024, -24576, 1024, -24576,
+        1024, -24576, 1024, -24576, 1024, -24576,
+    ];
+
+    #[test]
+    fn appendix_ii_overflow_encoder_output_is_bit_exact() {
+        // Drive the synthesisable Table II-3/G.722 overflow
+        // Configuration-1 input (clause II.3.2 p. 67) through the
+        // transmit-path encoder via run_configuration_1 and pin its
+        // I# output bit-exactly. This is the spec's own overflow test
+        // vector: the full-scale ±16384 swings force the largest
+        // prediction errors and exercise the saturation / overflow
+        // control of the pole- and zero-section output computations
+        // (clauses 3.6.1 / 3.6.2, BLOCK 4L / 4H) — a path the artificial
+        // Configuration-2 receive sequence does not reach because it
+        // bypasses the forward quantizer / difference computation.
+        use super::appendix_ii::{build_overflow_x_hash_stream, OVERFLOW_SEQUENCE_LEN};
+        let x_hash = build_overflow_x_hash_stream();
+        let mut enc = Encoder::new();
+        let out = run_configuration_1(&mut enc, &x_hash);
+        assert_eq!(out.len(), OVERFLOW_SEQUENCE_LEN);
+
+        // Leading window: element-by-element golden anchor.
+        assert_eq!(
+            &out[..32],
+            GOLDEN_OVERFLOW_I_HASH_HEAD.as_slice(),
+            "overflow encoder I# diverged on the leading full-scale window"
+        );
+
+        // Whole-sequence bit-exact fingerprint.
+        assert_eq!(
+            fnv1a_i_hash(&out),
+            0x21ba_1840_cd7a_f612_u64,
+            "overflow encoder I# full-sequence checksum diverged"
+        );
+
+        // Every output word must carry RSS cleared (no reset slots in
+        // the bare overflow data sequence) and a valid (non-suppressed)
+        // lower-band codeword in bits 8..13.
+        for (i, &w) in out.iter().enumerate() {
+            assert_eq!((w as u16) & RSS_MASK, 0, "overflow I# word {i} set RSS");
+            let il = ((w as u16) >> I_HASH_IL_SHIFT) & 0x3F;
+            assert!(
+                il >= 0b000100,
+                "overflow encoder emitted suppressed I_L 0x{il:02x} at word {i}"
+            );
+        }
+    }
+
+    #[test]
+    fn appendix_ii_overflow_encoder_reset_slot_emits_non_valid_word() {
+        // With an RSS-marked word the Configuration-1 harness must reset
+        // the encoder and emit the "non-valid data" word I# = 0x0001
+        // (INFB's RS == 1 branch: I = 0, I# = (0 << 8) + 1). Prefixing
+        // the overflow stream with a reset word must therefore yield a
+        // 0x0001 first output and leave the post-reset encoder matching
+        // a fresh one on the remaining words.
+        use super::appendix_ii::build_overflow_x_hash_stream;
+        let mut x_hash = alloc::vec![0x0001_i16]; // RSS = 1 marker word.
+        x_hash.extend(build_overflow_x_hash_stream());
+
+        let mut enc_reset = Encoder::new();
+        let with_reset = run_configuration_1(&mut enc_reset, &x_hash);
+        assert_eq!(with_reset[0] as u16, 0x0001, "reset slot must be non-valid");
+
+        // The words after the reset slot must equal a fresh encoder run
+        // on the bare overflow stream (the RSS reset returns the encoder
+        // to the fresh state).
+        let mut enc_fresh = Encoder::new();
+        let bare = run_configuration_1(&mut enc_fresh, &build_overflow_x_hash_stream());
+        assert_eq!(
+            &with_reset[1..],
+            bare.as_slice(),
+            "post-reset encoder did not match a fresh encoder"
+        );
+    }
+
     #[test]
     fn appendix_ii_zero_pole_predictor_full_range_excursion_landmark() {
         // Sanity-check that the 8 MSB sub-sequences collectively
