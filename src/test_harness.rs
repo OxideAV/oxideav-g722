@@ -1925,6 +1925,102 @@ mod tests {
         );
     }
 
+    // -- Full-circuit transmit -> receive bit-exact chain (Table II-3) --
+    //
+    // The two preceding spec test vectors each exercise one half of the
+    // codec: the Table II-3/G.722 overflow Configuration-1 input drives
+    // the *transmit* path (`appendix_ii_overflow_encoder_output_is_bit_exact`),
+    // and the artificial Configuration-2 sequence drives the *receive*
+    // path. This chains them: the encoder I# output from the overflow
+    // input is fed straight back into the Configuration-2 receive decoder,
+    // so a single full-scale square-wave excitation flows through the
+    // entire SB-ADPCM loop in both directions — forward quantizer +
+    // difference computation + overflow control on the transmit side
+    // (clauses 3.3 / 3.6) and the inverse quantizer + predictor + LIMIT
+    // on the receive side (clauses 4.x). Because the encoder always emits
+    // the full 6-bit lower-band codeword `I_L`, the three decoder modes
+    // diverge here exactly as they do on the artificial sequence: mode 1
+    // uses all 6 bits, mode 2 drops the LSB, mode 3 drops two LSBs. The
+    // RL#/RH# output is pinned per mode by a leading window plus a
+    // whole-sequence FNV-1a fingerprint.
+
+    /// Golden RL# leading window (first 24 words) for the Table II-3
+    /// overflow Configuration-1 input encoded then decoded in Mode 1.
+    /// After the reset-state suppressed-codeword start the receive
+    /// predictor locks onto the full-scale square wave and the RL# wire
+    /// word swings out to ± ~30000 (≈ ± 15000 reconstructed samples after
+    /// the INFD `>> 1`), alternating polarity every word.
+    const GOLDEN_OVERFLOW_RT_RL_MODE1_HEAD: [i16; 24] = [
+        -50, 132, -372, 1020, -2796, 7570, -20558, 25236, -25216, 25366, -25992, 26752, -27430,
+        27758, -28000, 28262, -28584, 28874, -29182, 29458, -29758, 30032, -30332, 30604,
+    ];
+    /// Golden RH# leading window (first 24 words). The higher band is
+    /// mode-invariant (only the lower band trades bits for auxiliary
+    /// data), so this window holds for all three modes.
+    const GOLDEN_OVERFLOW_RT_RH_HEAD: [i16; 24] = [
+        -4, 2, -8, 2, -16, 8, -28, 16, -40, 34, -58, 60, -92, 104, -150, 180, -246, 296, -402, 488,
+        -642, 808, -1032, 1302,
+    ];
+
+    #[test]
+    fn appendix_ii_overflow_full_circuit_transmit_receive_is_bit_exact() {
+        use super::appendix_ii::{build_overflow_x_hash_stream, OVERFLOW_SEQUENCE_LEN};
+        let x_hash = build_overflow_x_hash_stream();
+
+        // Transmit: encode the spec overflow input to an I# stream.
+        let mut enc = Encoder::new();
+        let i_hash = run_configuration_1(&mut enc, &x_hash);
+        assert_eq!(i_hash.len(), OVERFLOW_SEQUENCE_LEN);
+
+        // Receive: the SAME I# stream decoded per mode. The mode-specific
+        // whole-sequence fingerprints pin the full transmit→receive chain
+        // bit-exactly; the leading-window literals (Mode 1) localise a
+        // regression to the first 24 words.
+        let cases = [
+            (Mode::Mode1, 0x5916_5f03_b37e_9dde_u64),
+            (Mode::Mode2, 0x1c9a_f1f8_272c_3499_u64),
+            (Mode::Mode3, 0x00b7_bc68_f95f_8de6_u64),
+        ];
+        let mut prev_fp: Option<u64> = None;
+        for (mode, golden) in cases {
+            let mut dec = Decoder::new(mode);
+            let out = run_configuration_2(&mut dec, &i_hash);
+            assert_eq!(out.rl_hash.len(), OVERFLOW_SEQUENCE_LEN);
+            assert_eq!(out.rh_hash.len(), OVERFLOW_SEQUENCE_LEN);
+
+            // The higher band is identical across modes.
+            assert_eq!(
+                &out.rh_hash[..24],
+                GOLDEN_OVERFLOW_RT_RH_HEAD.as_slice(),
+                "full-circuit RH# leading window diverged for {mode:?}"
+            );
+            if mode == Mode::Mode1 {
+                assert_eq!(
+                    &out.rl_hash[..24],
+                    GOLDEN_OVERFLOW_RT_RL_MODE1_HEAD.as_slice(),
+                    "full-circuit RL# leading window diverged for Mode 1"
+                );
+            }
+
+            // Every data word carries RSS cleared (no reset slots).
+            for w in out.rl_hash.iter().chain(out.rh_hash.iter()) {
+                assert_eq!((*w as u16) & RSS_MASK, 0);
+            }
+
+            let fp = fnv1a_config2(&out);
+            assert_eq!(
+                fp, golden,
+                "full-circuit transmit→receive checksum diverged for {mode:?}"
+            );
+            // Each mode must yield a distinct fingerprint (lower-band bit
+            // truncation makes the three reconstructions differ).
+            if let Some(p) = prev_fp {
+                assert_ne!(p, fp, "{mode:?} fingerprint collided with the prior mode");
+            }
+            prev_fp = Some(fp);
+        }
+    }
+
     #[test]
     fn appendix_ii_zero_pole_predictor_full_range_excursion_landmark() {
         // Sanity-check that the 8 MSB sub-sequences collectively
