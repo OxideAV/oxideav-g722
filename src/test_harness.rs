@@ -2022,6 +2022,76 @@ mod tests {
     }
 
     #[test]
+    fn appendix_ii_receive_mid_stream_reset_returns_to_fresh_state() {
+        // Receive-side counterpart to
+        // `appendix_ii_overflow_encoder_reset_slot_emits_non_valid_word`.
+        // Per clause II.2.3 (p. 65), an RSS-marked I# word resets the
+        // decoder and emits the non-valid output `RL# = RH# = 0x0001`
+        // (INFD's RS == 1 branch); the words that follow must then match a
+        // fresh decoder decoding the same tail. This proves the receive
+        // path's reset (clauses 4.x scale-factor / predictor re-init)
+        // restores the exact post-RS condition mid-stream rather than only
+        // when constructed fresh — a regression in any state field carried
+        // across `Decoder::reset` would diverge the continuation.
+        //
+        // Driven by the spec's own overflow-derived I# stream so the
+        // post-reset words are a genuinely adapting full-scale excitation,
+        // not silence, and exercised across all three modes.
+        use super::appendix_ii::build_overflow_x_hash_stream;
+        let mut enc = Encoder::new();
+        let i_hash = run_configuration_1(&mut enc, &build_overflow_x_hash_stream());
+
+        for mode in [Mode::Mode1, Mode::Mode2, Mode::Mode3] {
+            // Warm a decoder with the first 40 words, then inject an RSS
+            // reset marker, then continue with a tail slice.
+            let head = &i_hash[..40];
+            let tail = &i_hash[40..200];
+
+            let mut stream = alloc::vec::Vec::with_capacity(head.len() + 1 + tail.len());
+            stream.extend_from_slice(head);
+            stream.push(0x0001_i16); // RSS = 1 marker word.
+            stream.extend_from_slice(tail);
+
+            let mut warmed = Decoder::new(mode);
+            let warmed_out = run_configuration_2(&mut warmed, &stream);
+
+            // The reset slot (index head.len()) must emit non-valid words.
+            let rss_idx = head.len();
+            assert_eq!(
+                warmed_out.rl_hash[rss_idx] as u16, 0x0001,
+                "{mode:?} RSS slot RL# not non-valid"
+            );
+            assert_eq!(
+                warmed_out.rh_hash[rss_idx] as u16, 0x0001,
+                "{mode:?} RSS slot RH# not non-valid"
+            );
+
+            // Words after the reset must equal a fresh decoder decoding
+            // just the tail.
+            let mut fresh = Decoder::new(mode);
+            let fresh_out = run_configuration_2(&mut fresh, tail);
+            assert_eq!(
+                &warmed_out.rl_hash[rss_idx + 1..],
+                fresh_out.rl_hash.as_slice(),
+                "{mode:?} post-reset RL# did not match a fresh decode of the tail"
+            );
+            assert_eq!(
+                &warmed_out.rh_hash[rss_idx + 1..],
+                fresh_out.rh_hash.as_slice(),
+                "{mode:?} post-reset RH# did not match a fresh decode of the tail"
+            );
+
+            // Sanity: the post-reset continuation is genuinely non-trivial
+            // (the full-scale tail produces large-magnitude RL# swings, so
+            // the test isn't vacuously matching silence).
+            assert!(
+                fresh_out.rl_hash.iter().any(|&w| (w as i32).abs() > 1000),
+                "{mode:?} tail decode unexpectedly flat"
+            );
+        }
+    }
+
+    #[test]
     fn appendix_ii_zero_pole_predictor_full_range_excursion_landmark() {
         // Sanity-check that the 8 MSB sub-sequences collectively
         // exercise both polarities of the zero predictor over their
