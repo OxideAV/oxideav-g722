@@ -843,4 +843,59 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn encoder_decoder_lockstep_survives_a_mid_stream_reset() {
+        // Reset-behaviour conformance built on the lockstep invariant
+        // above. The transmit-side local decoder and the standalone
+        // receive decoder are driven in lockstep, reset simultaneously
+        // mid-stream (clauses 3.5 / 3.6 post-RS condition), and required
+        // to (a) both land on the exact fresh-instance state immediately
+        // after reset and (b) re-synchronise and stay bit-identical for
+        // the remainder of the run. A reset that left any predictor /
+        // scale-factor / delay-line field stale on either side would
+        // diverge here even though each side's own `reset()` "matches a
+        // fresh instance" unit test passes — this is the cross-side
+        // consistency those single-side tests cannot see.
+        let mut enc = Encoder::new();
+        let mut dec = Decoder::new(Mode::Mode1);
+        let fresh_enc = Encoder::new();
+        let fresh_dec = Decoder::new(Mode::Mode1);
+
+        let mut state: u32 = 0x0bad_f00d;
+        let reset_at = 1500;
+        for n in 0..3000 {
+            if n == reset_at {
+                enc.reset();
+                dec.reset();
+                // Both sides must match a brand-new instance exactly.
+                assert_eq!(
+                    enc.predictor_snapshots(),
+                    fresh_enc.predictor_snapshots(),
+                    "encoder predictor state not fresh after reset"
+                );
+                assert_eq!(
+                    dec.predictor_snapshots(),
+                    fresh_dec.predictor_snapshots(),
+                    "decoder predictor state not fresh after reset"
+                );
+            }
+
+            state = state.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+            let xl = ((state >> 17) as i32 & 0x7FFF) - 16384;
+            state = state.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+            let xh = ((state >> 17) as i32 & 0x7FFF) - 16384;
+
+            let octet = enc.encode_subband_pair(xl, xh);
+            let il = octet & 0x3F;
+            let ih = (octet >> 6) & 0x3;
+            let _ = dec.decode_subband_pair(il, ih);
+
+            assert_eq!(
+                enc.predictor_snapshots(),
+                dec.predictor_snapshots(),
+                "transmit/receive predictor state diverged at step {n} (reset at {reset_at})"
+            );
+        }
+    }
 }
