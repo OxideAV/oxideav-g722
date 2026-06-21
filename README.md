@@ -22,7 +22,14 @@ spec-enumerated synthesisable Appendix-II sequences are now driven
 bit-exact end-to-end: the II.3.2 artificial Configuration-2 sequence
 through the **receive** path and the Table II-3 overflow Configuration-1
 sequence through the **transmit** path (the latter exercising the
-pole/zero-section overflow controls). The one remaining gap is the ITU
+pole/zero-section overflow controls). The two are also **chained
+full-circuit**: the Table II-3 overflow input is encoded then the
+resulting `I#` stream decoded per mode, pinning the round-trip RL#/RH#
+bit-exact across all three modes; and **reset behaviour** is anchored on
+both sides — a mid-stream RSS marker resets the receive decoder and the
+continuation matches a fresh decode (all three modes), and the
+transmit↔receive predictor lockstep is proven to survive a simultaneous
+mid-stream reset. The one remaining gap is the ITU
 disk-distributed digital test sequences (`T2R1.COD` / `T2R2.COD` +
 `*.RC*` comparison files, plus the non-enumerated Table II-2 tone
 input), which are not staged under `docs/` (see *Test vectors* below).
