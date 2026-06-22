@@ -1707,6 +1707,206 @@ mod tests {
         assert_ne!(h1, h3);
     }
 
+    // -- Appendix II.3.2 per-sub-sequence-boundary RL#/RH# anchors --
+    //
+    // The full-sequence FNV-1a fingerprint above proves the *entire*
+    // 16384-sample artificial Configuration-2 receive corpus is
+    // bit-exact, but a single opaque hash gives no diagnostic
+    // localisation: a regression anywhere in the run flips one 64-bit
+    // value with no indication of *which* sub-sequence drifted. The
+    // 512-sample golden window earlier in this module is human-readable
+    // but only reaches the first two Table II-4/G.722 lower-LSB
+    // sub-sequences.
+    //
+    // These anchors close that gap. The Table II-4 lower-LSB stream is
+    // 64 concatenated sub-sequences, each `LOWER_LSB_SUBSEQUENCE_LEN`
+    // (256) values long (clause II.3.2.1 p. 67), so sub-sequence `n`
+    // begins at sample `n * 256`. We pin the reconstructed RL#/RH# wire
+    // word at every one of those 64 boundaries, per mode. This walks
+    // the codec across the deep adaptive states the spec specifically
+    // designed the sequence to exercise:
+    //
+    //   * the logarithmic quantizer scale factor over its entire range
+    //     (the LSB magnitude ramps 31→0 across sub-sequences 1→63);
+    //   * the pole predictor coefficients across their allowable range
+    //     (clause II.3.2.1 p. 67); and
+    //   * the **suppressed-codeword conversion** of sub-sequences
+    //     (56)–(64) (Table II-4 magnitudes 3..0 with the alternating
+    //     wraps), which clause II.3.2.1 p. 67 calls out explicitly as
+    //     testing "the conversion from the suppressed codewords, which
+    //     can occur due to transmission errors, to specified quantizer
+    //     intervals" — the four substituted INVQBL code-words.
+    //
+    // Each value is the INFD-packed wire word `R << 1` (RSS LSB clear);
+    // the reconstructed sub-band sample is the word halved. `32766`
+    // (= 2 * 16383) and `-32768` (= 2 * -16384) are the post-shift
+    // images of the LIMIT block's ±16384 saturation ceiling / floor
+    // (clause 6.2.1.6 / 6.2.2.5), reached wherever the full-scale MSB
+    // sub-sequences drive the predictor into saturation.
+    //
+    // RH# is identical across all three modes — the higher sub-band
+    // codeword is mode-independent (only the lower band drops LSBs for
+    // the auxiliary-data channel, clause 1.3) — so a single golden
+    // vector is shared and the per-mode runs each re-assert it. A
+    // regression that accidentally coupled the higher-band loop to the
+    // mode selector would break this shared anchor.
+
+    /// Number of Table II-4/G.722 lower-LSB sub-sequence boundaries
+    /// (one per sub-sequence; clause II.3.2.1 p. 67 + Table II-4 p. 69).
+    const II4_BOUNDARIES: usize = 64;
+
+    /// Golden RL# wire words at each of the 64 Table II-4 sub-sequence
+    /// boundaries (sample `n * 256`), **Mode 1** (full 6-bit lower
+    /// sub-band). Hand-captured from the production receive path driving
+    /// the spec-derived artificial Configuration-2 sequence and locked
+    /// here.
+    const GOLDEN_II4_RL_MODE1: [i16; II4_BOUNDARIES] = [
+        -2, -2, -2, -4, -4, 0, -4, -4, 16894, 32766, 32766, 32766, 32766, 32766, 32766, 32766,
+        32766, 32766, 32766, 32766, 32766, 32766, 32766, 32766, 32766, 32766, 21022, 5662, 6124,
+        6076, 6548, 6516, 14412, 11320, 32766, 32766, 32766, 32766, 32766, 32766, 23622, -32768,
+        -32768, -32768, -32768, -32768, -32768, -32768, -32768, -32768, 32766, -18790, 32766,
+        -32768, -32768, 32766, 32766, 32766, 32766, 32766, 32766, 32766, 32766, 32766,
+    ];
+
+    /// Golden RL# boundary words, **Mode 2** (5-bit lower sub-band).
+    const GOLDEN_II4_RL_MODE2: [i16; II4_BOUNDARIES] = [
+        -2, -2, -2, -2, -4, 0, -4, -4, 16894, 32766, 32766, 32766, 32766, 32766, 32766, 32766,
+        32766, 32766, 32766, 32766, 32766, 32766, 32766, 32766, 32766, 32766, 20798, 5438, 6356,
+        6308, 6300, 6268, 14668, 11576, 32766, 32766, 32766, 32766, 32766, 32766, 23150, -32768,
+        -32768, -32768, -32768, -32768, -32768, -32768, -32768, -32768, 32766, -17342, 32766,
+        -32768, -32768, 32766, 32766, 32766, 32766, 32766, 32766, 32766, 32766, 32766,
+    ];
+
+    /// Golden RL# boundary words, **Mode 3** (4-bit lower sub-band). The
+    /// leading sub-sequences sit at 0 because dropping the two lowest
+    /// `I_L` bits flattens the constant-magnitude LSB runs to the
+    /// reset-state output.
+    const GOLDEN_II4_RL_MODE3: [i16; II4_BOUNDARIES] = [
+        0, 0, 0, 0, 0, 0, 0, 0, 16894, 32766, 32766, 32766, 32766, 32766, 32766, 32766, 32766,
+        32766, 32766, 32766, 32766, 32766, 32766, 32766, 32766, 32766, 19598, 4238, 4244, 4196,
+        4188, 4156, 13196, 10104, 32766, 32766, 32766, 32766, 32766, 32766, 25846, -32768, -32768,
+        -32768, -32768, -32768, -32768, -32768, -32768, -32768, 32766, -12678, 32766, -32768,
+        -32768, 32766, 32766, 32766, 32766, 32766, 32766, 32766, 32766, 32766,
+    ];
+
+    /// Golden RH# boundary words. Mode-independent (the higher sub-band
+    /// codeword carries no auxiliary-data LSB substitution), so shared
+    /// across all three modes.
+    const GOLDEN_II4_RH: [i16; II4_BOUNDARIES] = [
+        -2, -6, 23258, 27796, 32766, -26270, -14390, 32002, -32768, -2448, 32766, 32766, 32766,
+        32766, 32766, 32766, 32766, 32766, 32766, 32766, 32766, 32766, 32766, 32766, 32766, -28620,
+        3394, 8052, 10932, 12270, 12830, 12986, 18778, 22410, 32766, 32766, 32766, 32766, 32766,
+        32766, 32766, -24072, -32768, -32768, -32768, -32768, -32768, -32768, -32768, 32766, 32766,
+        32766, 32766, 32766, 32766, 32766, 32766, 32766, 32766, 14950, 11296, 32766, 32766, 28042,
+    ];
+
+    /// Sample the production receive path at each Table II-4 boundary
+    /// for `mode`, returning `(RL# boundaries, RH# boundaries)`.
+    fn collect_ii4_boundaries(mode: Mode) -> ([i16; II4_BOUNDARIES], [i16; II4_BOUNDARIES]) {
+        use super::appendix_ii::{build_i_hash_stream, LOWER_LSB_SUBSEQUENCE_LEN};
+        let stream = build_i_hash_stream();
+        let mut dec = Decoder::new(mode);
+        let out = run_configuration_2(&mut dec, &stream);
+        let mut rl = [0_i16; II4_BOUNDARIES];
+        let mut rh = [0_i16; II4_BOUNDARIES];
+        for n in 0..II4_BOUNDARIES {
+            let idx = n * LOWER_LSB_SUBSEQUENCE_LEN;
+            rl[n] = out.rl_hash[idx];
+            rh[n] = out.rh_hash[idx];
+        }
+        (rl, rh)
+    }
+
+    #[test]
+    fn appendix_ii_mode1_table_ii4_boundaries_are_bit_exact() {
+        let (rl, rh) = collect_ii4_boundaries(Mode::Mode1);
+        assert_eq!(
+            rl, GOLDEN_II4_RL_MODE1,
+            "Mode-1 RL# diverged at a Table II-4 sub-sequence boundary"
+        );
+        assert_eq!(
+            rh, GOLDEN_II4_RH,
+            "Mode-1 RH# diverged at a Table II-4 sub-sequence boundary"
+        );
+    }
+
+    #[test]
+    fn appendix_ii_mode2_table_ii4_boundaries_are_bit_exact() {
+        let (rl, rh) = collect_ii4_boundaries(Mode::Mode2);
+        assert_eq!(
+            rl, GOLDEN_II4_RL_MODE2,
+            "Mode-2 RL# diverged at a Table II-4 sub-sequence boundary"
+        );
+        assert_eq!(
+            rh, GOLDEN_II4_RH,
+            "Mode-2 RH# diverged at a Table II-4 sub-sequence boundary"
+        );
+    }
+
+    #[test]
+    fn appendix_ii_mode3_table_ii4_boundaries_are_bit_exact() {
+        let (rl, rh) = collect_ii4_boundaries(Mode::Mode3);
+        assert_eq!(
+            rl, GOLDEN_II4_RL_MODE3,
+            "Mode-3 RL# diverged at a Table II-4 sub-sequence boundary"
+        );
+        assert_eq!(
+            rh, GOLDEN_II4_RH,
+            "Mode-3 RH# diverged at a Table II-4 sub-sequence boundary"
+        );
+    }
+
+    #[test]
+    fn appendix_ii_table_ii4_higher_band_is_mode_independent() {
+        // The higher sub-band ADPCM loop must be byte-identical across
+        // the three modes — only the lower band drops LSBs (clause 1.3).
+        // This pins that structural invariant on the deep-adaptation
+        // corpus, independently of the shared GOLDEN_II4_RH constant.
+        let (_, rh1) = collect_ii4_boundaries(Mode::Mode1);
+        let (_, rh2) = collect_ii4_boundaries(Mode::Mode2);
+        let (_, rh3) = collect_ii4_boundaries(Mode::Mode3);
+        assert_eq!(rh1, rh2, "RH# differs between Mode 1 and Mode 2");
+        assert_eq!(rh2, rh3, "RH# differs between Mode 2 and Mode 3");
+    }
+
+    #[test]
+    fn appendix_ii_table_ii4_modes_differ_in_lower_band() {
+        // Conversely, the three lower-band boundary vectors must NOT be
+        // identical: the auxiliary-data LSB substitution genuinely
+        // changes the recovered lower-band signal once the dropped LSBs
+        // carry information (clause 1.3 + Table II-4 magnitude ramp).
+        assert_ne!(
+            GOLDEN_II4_RL_MODE1, GOLDEN_II4_RL_MODE2,
+            "Mode-1 and Mode-2 lower-band boundaries are identical"
+        );
+        assert_ne!(
+            GOLDEN_II4_RL_MODE2, GOLDEN_II4_RL_MODE3,
+            "Mode-2 and Mode-3 lower-band boundaries are identical"
+        );
+        assert_ne!(
+            GOLDEN_II4_RL_MODE1, GOLDEN_II4_RL_MODE3,
+            "Mode-1 and Mode-3 lower-band boundaries are identical"
+        );
+    }
+
+    #[test]
+    fn appendix_ii_table_ii4_boundary_words_have_rss_clear() {
+        // Every sampled boundary word is a valid-data slot, so its RSS
+        // LSB (clause II.4.5.3 p. 72) must be clear; and it must lie
+        // inside the i16 image of the LIMIT block (±32768 after the
+        // INFD <<1, clause 6.2.1.6 / 6.2.2.5).
+        for mode in [Mode::Mode1, Mode::Mode2, Mode::Mode3] {
+            let (rl, rh) = collect_ii4_boundaries(mode);
+            for &w in rl.iter().chain(rh.iter()) {
+                assert_eq!(
+                    (w as u16) & RSS_MASK,
+                    0,
+                    "boundary word carried RSS in {mode:?}"
+                );
+            }
+        }
+    }
+
     #[test]
     fn appendix_ii_modes_are_pairwise_distinct_on_lower_band_golden() {
         // The three modes consume a different number of lower-band bits,

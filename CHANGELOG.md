@@ -6,6 +6,30 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- **Round-359 per-sub-sequence-boundary bit-exact RL#/RH# anchors for
+  the synthesisable Appendix-II.3.2 Configuration-2 sequence.** The
+  full 16384-sample artificial receive corpus was previously protected
+  only by a single opaque FNV-1a fingerprint (a regression anywhere
+  flipped one 64-bit value with no localisation) plus a human-readable
+  512-sample window that reaches only the first two Table II-4/G.722
+  lower-LSB sub-sequences. New `appendix_ii_modeN_table_ii4_boundaries_
+  are_bit_exact` tests pin the reconstructed RL#/RH# wire word at every
+  one of the 64 Table II-4 sub-sequence boundaries (sample `n * 256`),
+  per mode — walking the decoder across the deep adaptive states the
+  spec designed the sequence to exercise: the logarithmic quantizer
+  scale factor over its entire range (LSB magnitude ramps 31→0), the
+  pole predictor coefficients across their allowable range, and the
+  **suppressed-codeword conversion** of sub-sequences (56)–(64) that
+  clause II.3.2.1 p. 67 explicitly calls out (the four substituted
+  INVQBL code-words arising from transmission errors). A companion test
+  pins the structural invariant that the higher sub-band loop is
+  **mode-independent** (RH# byte-identical across all three modes —
+  only the lower band drops LSBs for the auxiliary channel, clause 1.3)
+  on the deep-adaptation corpus, plus RSS-clear / LIMIT-range and
+  lower-band mode-distinctness checks. +6 tests (341 → 347). No
+  external reference, disk corpus, or online resource was consulted;
+  every golden value is the deterministic output of the production
+  receive path on the fully spec-enumerated input.
 - **Round-349 bit-exact ENCODER conformance on the synthesisable
   Table II-3/G.722 overflow Configuration-1 vector.** Every prior
   Appendix-II conformance anchor targeted the *receive* path

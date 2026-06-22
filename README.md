@@ -22,7 +22,16 @@ spec-enumerated synthesisable Appendix-II sequences are now driven
 bit-exact end-to-end: the II.3.2 artificial Configuration-2 sequence
 through the **receive** path and the Table II-3 overflow Configuration-1
 sequence through the **transmit** path (the latter exercising the
-pole/zero-section overflow controls). The two are also **chained
+pole/zero-section overflow controls). The II.3.2 receive sequence is
+anchored at **three depths**: a human-readable 512-sample leading
+golden window, a per-mode bit-exact RL#/RH# anchor at **every one of
+the 64 Table II-4 sub-sequence boundaries** (walking the codec across
+the full scale-factor / pole-coefficient range and the
+suppressed-codeword conversion of sub-sequences 56–64), and a
+full-16384-sample FNV-1a checksum; the per-boundary anchors also pin
+the structural invariant that the higher sub-band loop is
+**mode-independent** (identical RH# across all three modes). The two
+sequences are also **chained
 full-circuit**: the Table II-3 overflow input is encoded then the
 resulting `I#` stream decoded per mode, pinning the round-trip RL#/RH#
 bit-exact across all three modes; and **reset behaviour** is anchored on
@@ -42,7 +51,7 @@ registry.
 | ------------ | ---------------- | -------------------------------------------------------------------------------------- |
 | Encoder      | bit-exact (spec) | Transmit 24-tap QMF (§3.1; unity-DC-gain normalised per the LOWT/HIGHT `>> (y−15)` shift of §5.2.1), BLOCK 1L QUANTL (decision level `LDU(k) = (Q6(k) << 3)·DETL`, 1-indexed per Table 14) + BLOCK 1H QUANTH (decision level `Q2(1) = 564`) forward quantizers, shared predictor. Pinned against a spec-pseudo-code golden octet stream. |
 | Decoder      | bit-exact (spec) | Lower (4/5/6-bit modes 1/2/3) + higher (2-bit) inverse ADPCM, 24-tap receive QMF (unity-DC-gain normalised per eqs 4-3/4-4), LIMIT saturation. Pinned against per-mode golden PCM vectors + per-codeword reset-state inverse-quantizer anchors. |
-| Test vectors | spec / partial   | `src/conformance.rs` golden decode + encode vectors (all modes), per-codeword inverse-quantizer anchors, single-step hand derivation; the **synthesisable Appendix II.3.2 artificial Configuration-2 sequence** driven end-to-end through the receive path with **bit-exact RL#/RH# golden vectors** for the leading 512-sample window (per mode) plus a full-16384-sample per-mode FNV-1a checksum anchor; the **synthesisable Table II-3/G.722 overflow Configuration-1 sequence** (768 full-scale words) driven through the **encoder** with a bit-exact I# golden window + full-sequence checksum, exercising the pole/zero-section overflow controls (`test_harness`); transmit↔receive predictor-state lockstep over a 4096-step sweep; clause-2.4.2 mask driven on the real codec. The ITU disk corpus (`T2R1.COD` / `T2R2.COD` / `*.RC*`) is not staged. |
+| Test vectors | spec / partial   | `src/conformance.rs` golden decode + encode vectors (all modes), per-codeword inverse-quantizer anchors, single-step hand derivation; the **synthesisable Appendix II.3.2 artificial Configuration-2 sequence** driven end-to-end through the receive path with **bit-exact RL#/RH# golden vectors** at three depths — the leading 512-sample window, **per-mode anchors at all 64 Table II-4 sub-sequence boundaries** (covering the full scale-factor / pole-coefficient range + suppressed-codeword sub-sequences 56–64, with the higher-band loop pinned mode-independent), and a full-16384-sample per-mode FNV-1a checksum; the **synthesisable Table II-3/G.722 overflow Configuration-1 sequence** (768 full-scale words) driven through the **encoder** with a bit-exact I# golden window + full-sequence checksum, exercising the pole/zero-section overflow controls (`test_harness`); transmit↔receive predictor-state lockstep over a 4096-step sweep; clause-2.4.2 mask driven on the real codec. The ITU disk corpus (`T2R1.COD` / `T2R2.COD` / `*.RC*`) is not staged. |
 
 ### Implemented
 
