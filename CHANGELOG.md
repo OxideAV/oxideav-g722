@@ -6,6 +6,27 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- **Round-362 Table II-2/G.722 Configuration-1 conformance — segment
+  structure + bit-exact "d.c., value of zero" anchor.** Table II-2 is
+  the *primary* Configuration-1 encoder conformance input (tones across
+  the predictor-pole operating range, three d.c. segments, two
+  white-noise levels). The printed 11/88 Recommendation enumerates each
+  segment's signal kind + length but not the per-sample amplitudes (the
+  tone peaks, low-level d.c. magnitudes, and white-noise seed live only
+  on the unstaged disk file `T1C1.XMT`); only the "d.c., value of zero"
+  segment is fully sample-enumerable (512 literal zeros). New
+  `appendix_ii` API: a `SegmentKind` enum + `TABLE_II_2_SEGMENTS` table
+  capturing the 14 printed segments, plus generators for the DcZero
+  segment's `XL` / `X#` streams. Four new tests pin (1) the printed
+  segment structure — ordering, frequencies, lengths, and the 16384-word
+  total cross-checked against the offset constants; (2) the DcZero
+  X#-word INFA round-trip; (3) the **bit-exact encoder I# output** for
+  the DcZero segment from reset (constant silence code-word `0xFA00`:
+  I_H=3 / I_L=58, full-segment FNV-1a checksum), the deterministic
+  silence response of the quantizer / predictor feedback loop; and (4)
+  its **full-circuit transmit→receive** behaviour across all three
+  modes (RH# mode-independent, RL# settles per-mode). Test count
+  347→351.
 - **Round-359 per-sub-sequence-boundary bit-exact RL#/RH# anchors for
   the synthesisable Appendix-II.3.2 Configuration-2 sequence.** The
   full 16384-sample artificial receive corpus was previously protected

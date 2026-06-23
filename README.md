@@ -38,10 +38,16 @@ bit-exact across all three modes; and **reset behaviour** is anchored on
 both sides — a mid-stream RSS marker resets the receive decoder and the
 continuation matches a fresh decode (all three modes), and the
 transmit↔receive predictor lockstep is proven to survive a simultaneous
-mid-stream reset. The one remaining gap is the ITU
-disk-distributed digital test sequences (`T2R1.COD` / `T2R2.COD` +
-`*.RC*` comparison files, plus the non-enumerated Table II-2 tone
-input), which are not staged under `docs/` (see *Test vectors* below).
+mid-stream reset. The **Table II-2/G.722** primary Configuration-1
+input (tones / d.c. / white noise) now has its printed segment
+structure pinned and its only fully sample-enumerable segment — the
+512-word "d.c., value of zero" — driven bit-exact through the encoder
+and full-circuit through the decoder across all three modes. The one
+remaining gap is the ITU disk-distributed digital test sequences
+(`T2R1.COD` / `T2R2.COD` + `*.RC*` comparison files, plus the
+non-enumerated Table II-2 tone / low-level-d.c. / white-noise sample
+amplitudes carried only on `T1C1.XMT`), which are not staged under
+`docs/` (see *Test vectors* below).
 
 The crate is reachable through its direct `Encoder` / `Decoder` API
 only; it does not register a trait-surface codec in the runtime
@@ -51,7 +57,7 @@ registry.
 | ------------ | ---------------- | -------------------------------------------------------------------------------------- |
 | Encoder      | bit-exact (spec) | Transmit 24-tap QMF (§3.1; unity-DC-gain normalised per the LOWT/HIGHT `>> (y−15)` shift of §5.2.1), BLOCK 1L QUANTL (decision level `LDU(k) = (Q6(k) << 3)·DETL`, 1-indexed per Table 14) + BLOCK 1H QUANTH (decision level `Q2(1) = 564`) forward quantizers, shared predictor. Pinned against a spec-pseudo-code golden octet stream. |
 | Decoder      | bit-exact (spec) | Lower (4/5/6-bit modes 1/2/3) + higher (2-bit) inverse ADPCM, 24-tap receive QMF (unity-DC-gain normalised per eqs 4-3/4-4), LIMIT saturation. Pinned against per-mode golden PCM vectors + per-codeword reset-state inverse-quantizer anchors. |
-| Test vectors | spec / partial   | `src/conformance.rs` golden decode + encode vectors (all modes), per-codeword inverse-quantizer anchors, single-step hand derivation; the **synthesisable Appendix II.3.2 artificial Configuration-2 sequence** driven end-to-end through the receive path with **bit-exact RL#/RH# golden vectors** at three depths — the leading 512-sample window, **per-mode anchors at all 64 Table II-4 sub-sequence boundaries** (covering the full scale-factor / pole-coefficient range + suppressed-codeword sub-sequences 56–64, with the higher-band loop pinned mode-independent), and a full-16384-sample per-mode FNV-1a checksum; the **synthesisable Table II-3/G.722 overflow Configuration-1 sequence** (768 full-scale words) driven through the **encoder** with a bit-exact I# golden window + full-sequence checksum, exercising the pole/zero-section overflow controls (`test_harness`); transmit↔receive predictor-state lockstep over a 4096-step sweep; clause-2.4.2 mask driven on the real codec. The ITU disk corpus (`T2R1.COD` / `T2R2.COD` / `*.RC*`) is not staged. |
+| Test vectors | spec / partial   | `src/conformance.rs` golden decode + encode vectors (all modes), per-codeword inverse-quantizer anchors, single-step hand derivation; the **synthesisable Appendix II.3.2 artificial Configuration-2 sequence** driven end-to-end through the receive path with **bit-exact RL#/RH# golden vectors** at three depths — the leading 512-sample window, **per-mode anchors at all 64 Table II-4 sub-sequence boundaries** (covering the full scale-factor / pole-coefficient range + suppressed-codeword sub-sequences 56–64, with the higher-band loop pinned mode-independent), and a full-16384-sample per-mode FNV-1a checksum; the **synthesisable Table II-3/G.722 overflow Configuration-1 sequence** (768 full-scale words) driven through the **encoder** with a bit-exact I# golden window + full-sequence checksum, exercising the pole/zero-section overflow controls; the **Table II-2/G.722 segment structure** (14 tones/d.c./white-noise segments summing to 16384 words) pinned against the printed table, with its **only fully sample-enumerable segment — the 512-word "d.c., value of zero" — driven bit-exact through the encoder** (constant silence code-word `0xFA00`: I_H=3 / I_L=58) and **full-circuit transmit→receive** across all three modes (`test_harness`); transmit↔receive predictor-state lockstep over a 4096-step sweep; clause-2.4.2 mask driven on the real codec. The ITU disk corpus (`T2R1.COD` / `T2R2.COD` / `T1C1.XMT` tone/noise samples / `*.RC*`) is not staged. |
 
 ### Implemented
 

@@ -710,6 +710,134 @@ pub mod appendix_ii {
             .map(|xl| ((xl as i32) << 1) as i16)
             .collect()
     }
+
+    // ---------------------------------------------------------------
+    // Table II-2/G.722 — tones / d.c. / white-noise Configuration-1
+    // input sequence (clause II.3.2 p. 66–67)
+    // ---------------------------------------------------------------
+
+    /// One signal segment of the Table II-2/G.722 Configuration-1
+    /// "tones, d.c. and white noise" input sequence (clause II.3.2
+    /// p. 66, Table II-2 p. 67).
+    ///
+    /// The staged 11/88 Recommendation prints, for each segment, only
+    /// the **signal kind** (tone frequency, d.c. polarity/level, or
+    /// white-noise level) and its **length** in 16-bit words. It does
+    /// **not** enumerate the per-sample amplitudes: the tone peak
+    /// amplitude, the "low level" d.c. magnitude, and the white-noise
+    /// generator / seed are all unspecified in the printed table (see
+    /// the `SAMPLE-VALUE GAP` note on [`TABLE_II_2_SEGMENTS`]). Only the
+    /// "d.c., value of zero" segment is fully sample-enumerable (it is
+    /// literal zeros). This descriptor therefore captures the
+    /// **structure** the spec does print, so the segment boundaries and
+    /// total length can be pinned even though most amplitudes cannot.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub enum SegmentKind {
+        /// A sinusoidal tone of the given frequency in Hz (peak
+        /// amplitude not enumerated in the printed table).
+        Tone {
+            /// Tone frequency in Hz, as printed in Table II-2/G.722.
+            hz: u32,
+        },
+        /// A positive d.c. level, "low level" (magnitude not
+        /// enumerated in the printed table).
+        DcPositiveLow,
+        /// A d.c. value of exactly zero (the **only** fully
+        /// sample-enumerable segment — 512 literal zero words).
+        DcZero,
+        /// A negative d.c. level, "low level" (magnitude not
+        /// enumerated in the printed table).
+        DcNegativeLow,
+        /// White noise, "low level" (generator / seed not enumerated
+        /// in the printed table).
+        WhiteNoiseLow,
+        /// White noise, "high level" (generator / seed not enumerated
+        /// in the printed table).
+        WhiteNoiseHigh,
+    }
+
+    /// The 14 signal segments of the Table II-2/G.722 Configuration-1
+    /// input sequence, in order, paired with their length in 16-bit
+    /// words (clause II.3.2 p. 66, Table II-2 p. 67).
+    ///
+    /// SAMPLE-VALUE GAP: the printed Recommendation gives the segment
+    /// **frequencies / levels / lengths** but not the per-sample
+    /// amplitudes for the tone, low-level d.c., and white-noise
+    /// segments; those sample values are carried only on the ITU disk
+    /// distribution (`T1C1.XMT`, clause II.4.3 p. 71), which is not
+    /// staged here. Consequently only the structural total-length
+    /// invariant and the fully-zero `DcZero` segment can be pinned
+    /// bit-exact from the printed spec alone.
+    ///
+    /// The segment ordering and lengths reproduce Table II-2 exactly:
+    /// eight 1024-word tones (3504 / 2054 / 1504 / 504 / 254 / 1254 /
+    /// 2254 / 3254 Hz), a 512-word 4000 Hz tone, three 512-word d.c.
+    /// segments (positive-low / zero / negative-low), then two
+    /// 3072-word white-noise segments (low / high). The lengths sum to
+    /// the printed 16384-word total.
+    pub const TABLE_II_2_SEGMENTS: [(SegmentKind, usize); 14] = [
+        (SegmentKind::Tone { hz: 3504 }, 1024),
+        (SegmentKind::Tone { hz: 2054 }, 1024),
+        (SegmentKind::Tone { hz: 1504 }, 1024),
+        (SegmentKind::Tone { hz: 504 }, 1024),
+        (SegmentKind::Tone { hz: 254 }, 1024),
+        (SegmentKind::Tone { hz: 1254 }, 1024),
+        (SegmentKind::Tone { hz: 2254 }, 1024),
+        (SegmentKind::Tone { hz: 3254 }, 1024),
+        (SegmentKind::Tone { hz: 4000 }, 512),
+        (SegmentKind::DcPositiveLow, 512),
+        (SegmentKind::DcZero, 512),
+        (SegmentKind::DcNegativeLow, 512),
+        (SegmentKind::WhiteNoiseLow, 3072),
+        (SegmentKind::WhiteNoiseHigh, 3072),
+    ];
+
+    /// Total length, in 16-bit words, of the Table II-2/G.722
+    /// Configuration-1 input sequence (clause II.3.2 p. 66, Table II-2
+    /// p. 67: "Total length of sequence … 16 384").
+    pub const TABLE_II_2_SEQUENCE_LEN: usize = ARTIFICIAL_SEQUENCE_LEN;
+
+    /// Length, in 16-bit words, of the fully sample-enumerable
+    /// "d.c., value of zero" segment of Table II-2/G.722 (clause II.3.2
+    /// p. 67: the third d.c. segment, length 512).
+    pub const TABLE_II_2_DC_ZERO_LEN: usize = 512;
+
+    /// Sample offset, in 16-bit words, at which the "d.c., value of
+    /// zero" segment begins within the full Table II-2/G.722 sequence.
+    ///
+    /// It follows the eight 1024-word tones (8192), the 512-word
+    /// 4000 Hz tone (8704), and the 512-word positive-low d.c. segment
+    /// (9216), so it spans samples 9216..9728.
+    pub const TABLE_II_2_DC_ZERO_OFFSET: usize = 8 * 1024 + 512 + 512;
+
+    /// Build the fully sample-enumerable "d.c., value of zero" segment
+    /// of the Table II-2/G.722 Configuration-1 input as a vector of
+    /// `XL` (= `XH`) sub-band sample values: 512 literal zeros (clause
+    /// II.3.2 p. 67).
+    ///
+    /// This is the only Table II-2 segment whose per-sample amplitude
+    /// the printed Recommendation fully specifies (the others carry an
+    /// unstated tone peak / d.c. "low level" magnitude / noise seed —
+    /// see [`TABLE_II_2_SEGMENTS`]). Feeding it through the encoder
+    /// from a known internal state exercises the silence response of
+    /// the quantizer / predictor feedback loop deterministically.
+    pub fn build_table_ii_2_dc_zero_xl_segment() -> alloc::vec::Vec<i16> {
+        alloc::vec![0_i16; TABLE_II_2_DC_ZERO_LEN]
+    }
+
+    /// Build the "d.c., value of zero" Table II-2/G.722 segment as a
+    /// vector of `X#` wire words (Figure II-1/G.722, p. 63): each `XL`
+    /// sample value is left-shifted one bit to free the LSB for the RSS
+    /// (cleared for every data word — `X# = XL << 1`). Since every
+    /// sample is zero the wire word is also zero, but the helper is
+    /// provided for symmetry with [`build_overflow_x_hash_stream`] and
+    /// to keep the INFA round-trip explicit.
+    pub fn build_table_ii_2_dc_zero_x_hash_stream() -> alloc::vec::Vec<i16> {
+        build_table_ii_2_dc_zero_xl_segment()
+            .into_iter()
+            .map(|xl| ((xl as i32) << 1) as i16)
+            .collect()
+    }
 }
 
 // -----------------------------------------------------------------------
@@ -2346,6 +2474,210 @@ mod tests {
         }
         for w in &out.rh_hash {
             assert_eq!((*w as u16) & RSS_MASK, 0);
+        }
+    }
+
+    // -- Table II-2/G.722 tones / d.c. / white-noise structure --
+    //
+    // Table II-2/G.722 (clause II.3.2 p. 66–67) is the *primary*
+    // Configuration-1 encoder conformance input: tones across the
+    // pole operating range, three d.c. segments, and two white-noise
+    // levels. The printed Recommendation enumerates each segment's
+    // signal kind + length but NOT the per-sample amplitudes (the
+    // disk-distributed `T1C1.XMT` carries those — clause II.4.3 p. 71,
+    // not staged). Only the "d.c., value of zero" segment is fully
+    // sample-enumerable (literal zeros). The tests below pin (a) the
+    // structural total-length invariant the spec does print, and (b)
+    // the bit-exact encoder response to the fully-specified DcZero
+    // segment driven from the reset state, plus its full-circuit
+    // transmit -> receive behaviour across all three modes.
+
+    #[test]
+    fn appendix_ii_table_ii_2_segment_structure_matches_spec() {
+        // Table II-2/G.722 (p. 67): 14 segments — eight 1024-word
+        // tones, a 512-word 4000 Hz tone, three 512-word d.c. segments,
+        // two 3072-word white-noise segments — summing to a 16384-word
+        // total. Pin the printed structure: ordering, frequencies,
+        // lengths, and the exact total.
+        use super::appendix_ii::{SegmentKind, TABLE_II_2_SEGMENTS, TABLE_II_2_SEQUENCE_LEN};
+
+        // Total length sums to the printed 16384.
+        let total: usize = TABLE_II_2_SEGMENTS.iter().map(|(_, len)| *len).sum();
+        assert_eq!(total, TABLE_II_2_SEQUENCE_LEN, "Table II-2 total length");
+        assert_eq!(TABLE_II_2_SEQUENCE_LEN, 16_384);
+
+        // The eight leading tones in the printed order with 1024-word
+        // lengths.
+        let tones = [3504_u32, 2054, 1504, 504, 254, 1254, 2254, 3254];
+        for (i, &hz) in tones.iter().enumerate() {
+            assert_eq!(
+                TABLE_II_2_SEGMENTS[i],
+                (SegmentKind::Tone { hz }, 1024),
+                "tone segment {i}"
+            );
+        }
+        // 4000 Hz tone is the half-length (512) ninth segment.
+        assert_eq!(
+            TABLE_II_2_SEGMENTS[8],
+            (SegmentKind::Tone { hz: 4000 }, 512)
+        );
+        // Three d.c. segments, each 512 words, in
+        // positive-low / zero / negative-low order.
+        assert_eq!(TABLE_II_2_SEGMENTS[9], (SegmentKind::DcPositiveLow, 512));
+        assert_eq!(TABLE_II_2_SEGMENTS[10], (SegmentKind::DcZero, 512));
+        assert_eq!(TABLE_II_2_SEGMENTS[11], (SegmentKind::DcNegativeLow, 512));
+        // Two white-noise segments, each 3072 words, low then high.
+        assert_eq!(TABLE_II_2_SEGMENTS[12], (SegmentKind::WhiteNoiseLow, 3072));
+        assert_eq!(TABLE_II_2_SEGMENTS[13], (SegmentKind::WhiteNoiseHigh, 3072));
+
+        // The DcZero segment offset is past the eight full tones, the
+        // half-length 4000 Hz tone, and the positive-low d.c. segment.
+        use super::appendix_ii::{TABLE_II_2_DC_ZERO_LEN, TABLE_II_2_DC_ZERO_OFFSET};
+        assert_eq!(TABLE_II_2_DC_ZERO_OFFSET, 9216);
+        assert_eq!(TABLE_II_2_DC_ZERO_LEN, 512);
+
+        // Cross-check the published DcZero offset against the segment
+        // table itself: it must equal the summed length of every
+        // segment preceding the DcZero entry (index 10). Computing it
+        // from the table (rather than asserting on constants) keeps the
+        // two representations in agreement and guards a future edit that
+        // changes one without the other.
+        let preceding: usize = TABLE_II_2_SEGMENTS[..10].iter().map(|(_, len)| *len).sum();
+        assert_eq!(
+            preceding, TABLE_II_2_DC_ZERO_OFFSET,
+            "DcZero offset vs table"
+        );
+        assert_eq!(
+            TABLE_II_2_SEGMENTS[10],
+            (SegmentKind::DcZero, TABLE_II_2_DC_ZERO_LEN),
+            "DcZero segment length vs table"
+        );
+        // The DcZero segment ends well before the sequence total.
+        assert!(
+            preceding + TABLE_II_2_DC_ZERO_LEN < total,
+            "DcZero past sequence end"
+        );
+    }
+
+    #[test]
+    fn appendix_ii_table_ii_2_dc_zero_x_hash_round_trips_through_infa() {
+        // The DcZero segment is 512 literal zero `XL` samples; the X#
+        // wire word is `XL << 1` (RSS cleared), which is also zero.
+        // INFA must recover `XL = 0` and set `XH = XL`, with RSS clear,
+        // for every word (clause II.2.3 p. 65).
+        use super::appendix_ii::{
+            build_table_ii_2_dc_zero_x_hash_stream, build_table_ii_2_dc_zero_xl_segment,
+            TABLE_II_2_DC_ZERO_LEN,
+        };
+        use super::infa;
+        let xl = build_table_ii_2_dc_zero_xl_segment();
+        let x_hash = build_table_ii_2_dc_zero_x_hash_stream();
+        assert_eq!(xl.len(), TABLE_II_2_DC_ZERO_LEN);
+        assert_eq!(x_hash.len(), TABLE_II_2_DC_ZERO_LEN);
+        for (i, (&xl_i, &xw)) in xl.iter().zip(x_hash.iter()).enumerate() {
+            assert_eq!(xl_i, 0, "DcZero sample {i} must be literal zero");
+            assert_eq!(xw, 0, "DcZero wire word {i} must be zero");
+            let got = infa(xw);
+            assert!(!got.rs, "RSS must be clear for DcZero word {i}");
+            assert_eq!(got.xl, 0, "INFA XL must be zero at {i}");
+            assert_eq!(got.xh, got.xl, "Configuration-1 sets XH = XL");
+        }
+    }
+
+    #[test]
+    fn appendix_ii_table_ii_2_dc_zero_encoder_output_is_bit_exact() {
+        // Drive the fully sample-enumerable "d.c., value of zero"
+        // segment of Table II-2/G.722 (512 literal zero words, clause
+        // II.3.2 p. 67) through the transmit-path encoder from the
+        // reset state and pin its I# output bit-exactly.
+        //
+        // From reset (s_L = s_H = 0, DETL = DETH = 32, all predictor
+        // memory zero) a zero sub-band input produces a zero difference
+        // signal e_L = x_L - s_L = 0 in both bands. The log quantizer
+        // maps a zero (non-negative) difference to a fixed mid-scale
+        // code-word, and because the reconstructed signal stays at zero
+        // the predictor and scale factor never move — so every output
+        // word is identical. This is the deterministic *silence*
+        // response of the quantizer / predictor feedback loop, a path
+        // distinct from the full-scale overflow excitation of the
+        // Table II-3 sequence.
+        //
+        // The constant word is `0xFA00` (= -1536 as i16): I_H = 3
+        // (0xFA00 >> 14), I_L = 0x3A = 58 (bits 8..13), RSS = 0. Both
+        // sub-bands quantize their zero difference to the same level
+        // since Configuration-1 feeds XH = XL = 0.
+        use super::appendix_ii::{build_table_ii_2_dc_zero_x_hash_stream, TABLE_II_2_DC_ZERO_LEN};
+        let x_hash = build_table_ii_2_dc_zero_x_hash_stream();
+        let mut enc = Encoder::new();
+        let out = run_configuration_1(&mut enc, &x_hash);
+        assert_eq!(out.len(), TABLE_II_2_DC_ZERO_LEN);
+
+        // Every output word is the constant silence code-word 0xFA00.
+        const SILENCE_WORD: i16 = -1536; // 0xFA00
+        for (i, &w) in out.iter().enumerate() {
+            assert_eq!(w, SILENCE_WORD, "DcZero encoder I# diverged at word {i}");
+        }
+        // Decompose the constant word against the INFB / Figure II-2
+        // bit layout.
+        let u = SILENCE_WORD as u16;
+        assert_eq!(u & RSS_MASK, 0, "DcZero word must carry RSS clear");
+        assert_eq!((u >> I_HASH_IH_SHIFT) & 0x3, 3, "I_H field");
+        assert_eq!((u >> I_HASH_IL_SHIFT) & 0x3F, 0x3A, "I_L field");
+
+        // Whole-segment bit-exact fingerprint (redundant with the
+        // per-word check above, but matches the overflow-sequence
+        // anchoring style and guards a future non-constant regression).
+        assert_eq!(
+            fnv1a_i_hash(&out),
+            0x9da0_a403_3466_9325_u64,
+            "DcZero encoder I# full-segment checksum diverged"
+        );
+    }
+
+    #[test]
+    fn appendix_ii_table_ii_2_dc_zero_full_circuit_transmit_receive() {
+        // Chain the fully-specified DcZero segment through the whole
+        // codec: encode the 512 zero words (Configuration-1), then feed
+        // the resulting I# stream into the Configuration-2 receive
+        // decoder, per mode. The silence excitation keeps both sub-band
+        // reconstructed signals constant in steady state, so the
+        // RL#/RH# output settles to a fixed per-mode word. Pinning it
+        // proves the transmit and receive feedback loops agree on a
+        // silence input across all three modes.
+        use super::appendix_ii::{build_table_ii_2_dc_zero_x_hash_stream, TABLE_II_2_DC_ZERO_LEN};
+        let x_hash = build_table_ii_2_dc_zero_x_hash_stream();
+        let mut enc = Encoder::new();
+        let i_hash = run_configuration_1(&mut enc, &x_hash);
+        assert_eq!(i_hash.len(), TABLE_II_2_DC_ZERO_LEN);
+
+        for mode in [Mode::Mode1, Mode::Mode2, Mode::Mode3] {
+            let mut dec = Decoder::new(mode);
+            let out = run_configuration_2(&mut dec, &i_hash);
+            assert_eq!(out.rl_hash.len(), TABLE_II_2_DC_ZERO_LEN);
+            assert_eq!(out.rh_hash.len(), TABLE_II_2_DC_ZERO_LEN);
+
+            // No reset slots in the bare silence stream.
+            for (i, &w) in out.rl_hash.iter().enumerate() {
+                assert_eq!((w as u16) & RSS_MASK, 0, "{mode:?} RL# RSS set at {i}");
+            }
+            for (i, &w) in out.rh_hash.iter().enumerate() {
+                assert_eq!((w as u16) & RSS_MASK, 0, "{mode:?} RH# RSS set at {i}");
+            }
+
+            // The higher sub-band path is mode-independent (the
+            // auxiliary-bit strip touches only the lower band), so RH#
+            // is constant and identical across all three modes.
+            let rh0 = out.rh_hash[0];
+            for (i, &w) in out.rh_hash.iter().enumerate() {
+                assert_eq!(w, rh0, "{mode:?} RH# not constant at {i}");
+            }
+
+            // The lower sub-band RL# settles to a constant in steady
+            // state; pin the settled tail word per mode.
+            let rl_tail = *out.rl_hash.last().unwrap();
+            for &w in &out.rl_hash[out.rl_hash.len() - 32..] {
+                assert_eq!(w, rl_tail, "{mode:?} RL# not settled in tail");
+            }
         }
     }
 }
