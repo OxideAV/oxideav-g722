@@ -478,3 +478,48 @@ fn joint_qmf_sidelobes_are_bounded_rounding_noise() {
         }
     }
 }
+
+/// Drive the analysis QMF with the 4-sample-periodic 16 kHz pattern
+/// `pattern` repeated until the 12-deep delay line is full, returning the
+/// steady-state sub-band pair `(x_L, x_H)`. The pattern is indexed by the
+/// absolute 16 kHz sample number so a constant or alternating tone is
+/// reproduced exactly.
+fn analysis_steady_state(pattern: [i32; 4]) -> (i32, i32) {
+    let mut enc = Encoder::new();
+    let mut last = (0, 0);
+    // 24 paired steps (48 input samples) is well past the 12-tap fill.
+    for k in 0..24 {
+        let x_first = pattern[(2 * k) % 4];
+        let x_second = pattern[(2 * k + 1) % 4];
+        last = enc.analysis_qmf_step(x_first, x_second);
+    }
+    last
+}
+
+#[test]
+fn analysis_qmf_routes_bands_by_frequency() {
+    // The analysis QMF splits 0–8 kHz into a lower (0–4 kHz) and higher
+    // (4–8 kHz) sub-band (decode trace §1, §3.3). A pure d.c. (0 Hz)
+    // input must appear entirely in the lower band with unity gain, and a
+    // Nyquist-rate alternation (8 kHz, the top of the wideband) entirely
+    // in the higher band — the band-selectivity / aliasing-cancellation
+    // property that the isolated d.c. gain test does not cover (it pins
+    // only the lower-band routing).
+
+    // d.c.: pattern is constant → all energy in x_L, none in x_H.
+    let (xl_dc, xh_dc) = analysis_steady_state([1000, 1000, 1000, 1000]);
+    assert_eq!(xl_dc, 1000, "d.c. lower-band unity gain");
+    assert_eq!(xh_dc, 0, "d.c. must not leak into the higher band");
+
+    // 8 kHz Nyquist alternation (+A, -A, +A, -A) → all energy in x_H,
+    // none in x_L. The magnitude is unity; the sign is the QMF's
+    // linear-phase response at the band edge.
+    let (xl_ny, xh_ny) = analysis_steady_state([1000, -1000, 1000, -1000]);
+    assert_eq!(xl_ny, 0, "8 kHz must not leak into the lower band");
+    assert_eq!(xh_ny, -1000, "8 kHz higher-band unity-magnitude gain");
+
+    // The two routings are mirror images: each carries the full input
+    // magnitude into exactly one band and leaves the other at zero.
+    assert_eq!(xl_dc.abs(), xh_ny.abs(), "band gains are symmetric");
+    assert_eq!(xh_dc, xl_ny, "both off-band leakages are zero");
+}

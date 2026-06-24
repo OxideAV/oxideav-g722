@@ -37,6 +37,18 @@ All notable changes to this project will be documented in this file.
   deterministic output of the production QMF integer arithmetic on a
   fully spec-enumerable input; no external reference, disk corpus, or
   online resource was consulted. Test count 351→355.
+- **Round-367 analysis-QMF band-selectivity conformance.** The analysis
+  QMF splits the 0–8 kHz wideband into a lower (0–4 kHz) and higher
+  (4–8 kHz) sub-band (decode-trace §1 / §3.3). The existing isolated
+  DC-gain test pins only the lower-band routing; the new
+  `analysis_qmf_routes_bands_by_frequency` adds the complementary
+  higher-band routing and the mutual aliasing-cancellation: a pure d.c.
+  (0 Hz) input lands entirely in `x_L` at unity gain with `x_H = 0`,
+  while a Nyquist-rate alternation (8 kHz, the top of the band) lands
+  entirely in `x_H` at unity magnitude with `x_L = 0`, the two routings
+  mirror-imaging each other. Driven through the QMF-only
+  `Encoder::analysis_qmf_step` accessor to steady state. Test count
+  355→356.
 - **Round-362 Table II-2/G.722 Configuration-1 conformance — segment
   structure + bit-exact "d.c., value of zero" anchor.** Table II-2 is
   the *primary* Configuration-1 encoder conformance input (tones across
