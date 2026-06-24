@@ -4,6 +4,53 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.0.6](https://github.com/OxideAV/oxideav-g722/releases/tag/v0.0.6) - 2026-06-24
+
+### Other
+
+- r367 analysis-QMF band-selectivity conformance
+- r367 joint analysis↔synthesis QMF near-perfect-reconstruction conformance
+- r362 Table II-2/G.722 Configuration-1 segment structure + bit-exact d.c.-zero encoder anchor
+- per-sub-sequence-boundary bit-exact RL#/RH# anchors for the Appendix-II.3.2 Configuration-2 receive corpus
+- README — note full-circuit round-trip + mid-stream reset conformance
+- transmit/receive lockstep survives a mid-stream reset
+- receive-side mid-stream RSS reset conformance across all three modes
+- full-circuit transmit→receive bit-exact chain on Table II-3 overflow input
+- r349 README + CHANGELOG — Table II-3 overflow encoder conformance
+- r349 bit-exact encoder conformance on the Table II-3 overflow vector
+- r349 Table II-3 overflow Configuration-1 input sequence generator
+- r344 fix stale 256->512 window note in Appendix-II.3.2 golden block comment
+- r344 README + CHANGELOG — Appendix-II.3.2 bit-exact RL#/RH# conformance
+- r344 full-sequence bit-exact checksum anchor for the Appendix-II.3.2 corpus
+- r344 bit-exact RL#/RH# golden vectors for the Appendix-II.3.2 sequence
+- scrub enumerated-denial prose from conformance module doc
+- r338 README + CHANGELOG — bit-exact spec-pseudo-code conformance status
+- r338 drive the clause-2.4.2 attenuation mask on the real codec (all modes)
+- r338 per-codeword reset-state inverse-quantizer conformance anchors
+- r338 bit-exact golden-vector conformance across modes 1/2/3 (both directions)
+- r332 transmit↔receive predictor-state lockstep conformance test
+- fix QUANTL lower-band decision-level off-by-one (Q6(k), not Q6(k-1))
+- r322 fix transmit-QMF normalisation (>>11 -> >>13) + DC unity-gain conformance test
+- r313 fix receive-QMF normalisation (>>11 -> >>12) + DC unity-gain conformance test
+- refresh to current status, drop per-round changelog cruft
+- r304 clause 2.5.7 / Figure 16 gain-variation-vs-input-level mask
+- clause 2.5.6 / Figure 15 signal-to-total-distortion vs frequency mask
+- clause 2.5.4 receive-part idle-noise bound + clause 2.5.5 / Figure 14 signal-to-total-distortion vs input-level mask
+- clause 2.5.3 / Figure 13 group-delay-distortion mask
+- clause 2.4.2 / Figure 10 codec end-to-end attenuation/frequency-distortion mask
+- round-258 clause 2.5.1 / Figure 11 input anti-aliasing filter mask
+- drop release-plz.toml — use release-plz defaults across the workspace
+- round-237 clause 2.5.2 / Figure 12 output reconstructing filter mask
+- round-231 synthesisable Appendix-II.3.2 third Configuration-2 input sequence
+- round-225 Appendix-II test-sequence harness + QMF-bypass entry points
+- round-218 clause-2 transmission characteristics
+- auxiliary-data channel (Figure 1/G.722 data-insertion + extraction)
+- round-207 Table 19/G.722 transcription anomaly fix
+- round-200 clean-room SB-ADPCM encoder bring-up
+- round-185 clean-room SB-ADPCM decoder bring-up
+- wrap Display write! to satisfy rustfmt (scaffold)
+- orphan-rebuild scaffold — clean-room reset (post-audit 2026-05-25)
+
 ### Added
 
 - **Round-367 joint analysis↔synthesis QMF near-perfect-reconstruction
