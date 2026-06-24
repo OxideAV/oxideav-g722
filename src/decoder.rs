@@ -431,6 +431,20 @@ impl Decoder {
         (self.lower.snapshot(), self.higher.snapshot())
     }
 
+    /// Run *only* the receive (synthesis) QMF on one already-
+    /// reconstructed sub-band pair `(R_L, R_H)`, returning the two
+    /// 16 kHz output samples `(x_out1, x_out2)` of eqs 4-3 / 4-4
+    /// (clause 4.4 / 5.2.2) **without** running any ADPCM decoding.
+    ///
+    /// Used by the joint analysis↔synthesis QMF reconstruction test to
+    /// pin the filter bank's near-perfect-reconstruction property in
+    /// isolation from the ADPCM loop; not part of the public bitstream
+    /// API.
+    #[cfg(test)]
+    pub(crate) fn synthesis_qmf_step(&mut self, rl: i32, rh: i32) -> (i32, i32) {
+        self.qmf.step(rl, rh)
+    }
+
     /// Read-only access to the current bit-rate mode.
     pub fn mode(&self) -> Mode {
         self.mode

@@ -6,6 +6,37 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- **Round-367 joint analysis↔synthesis QMF near-perfect-reconstruction
+  conformance.** The transmit (analysis) and receive (synthesis) QMF
+  banks share the single 24-tap symmetric Table 11/G.722 coefficient set
+  — the defining property of a quadrature mirror filter bank. Until now
+  each bank was pinned only by its own *isolated* DC-gain test
+  (`transmit_qmf_dc_splits_with_unity_lower_band_gain` /
+  `receive_qmf_lower_band_dc_has_unity_gain`); neither pinned the
+  **joint** arithmetic, so a transpose of the even/odd delay-line
+  assignment, an error in the RECA/RECB sign convention, or a one-bit
+  error in *either* `>> 13` (analysis) / `>> 12` (synthesis) shift could
+  leave both isolated DC gains correct while destroying the
+  reconstruction. New test-only QMF-only accessors
+  `Encoder::analysis_qmf_step` / `Decoder::synthesis_qmf_step` (mirroring
+  the existing `#[cfg(test)] predictor_snapshots` pattern; no production
+  surface) expose the raw analysis `(x_L, x_H)` and raw synthesis
+  `(x_out1, x_out2)` so a Kronecker impulse can be cascaded through both
+  banks with the sub-band pair passed straight through — no ADPCM
+  quantization. Four new `conformance` tests pin: (1) the **bit-exact
+  48-sample golden impulse response** (peak `4096` at the fixed
+  reconstruction delay index 22, ringed by `0/±1/±2` rounding-noise
+  sidelobes); (2) **unity gain within the ±2 two-stage truncation band**
+  across `±100 … ±16383` input amplitudes (both shift counts pinned
+  jointly — a one-bit error would scale the peak by 2 or ½); (3) **1:1
+  linear-phase delay tracking** (shifting the input impulse by an even
+  number of samples shifts the reconstructed peak by exactly the same
+  amount, peak holding unity `4096`); and (4) the **bounded
+  rounding-noise sidelobe budget** (every off-peak sample `≤ ±2`, total
+  absolute sidelobe energy `35`). Every golden value is the
+  deterministic output of the production QMF integer arithmetic on a
+  fully spec-enumerable input; no external reference, disk corpus, or
+  online resource was consulted. Test count 351→355.
 - **Round-362 Table II-2/G.722 Configuration-1 conformance — segment
   structure + bit-exact "d.c., value of zero" anchor.** Table II-2 is
   the *primary* Configuration-1 encoder conformance input (tones across

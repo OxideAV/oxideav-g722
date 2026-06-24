@@ -478,6 +478,19 @@ impl Encoder {
     ) {
         (self.lower.snapshot(), self.higher.snapshot())
     }
+
+    /// Run *only* the transmit (analysis) QMF on one paired 16 kHz input
+    /// `(x_in(j-1), x_in(j))`, returning the raw `(x_L, x_H)` sub-band
+    /// pair of eqs 3-1 / 3-2 (clause 3.1) **without** quantizing them.
+    ///
+    /// Used by the joint analysis↔synthesis QMF reconstruction test to
+    /// pin the filter bank's near-perfect-reconstruction property in
+    /// isolation from the ADPCM loop; not part of the public bitstream
+    /// API.
+    #[cfg(test)]
+    pub(crate) fn analysis_qmf_step(&mut self, x_first: i32, x_second: i32) -> (i32, i32) {
+        self.qmf.step(x_first, x_second)
+    }
 }
 
 #[cfg(test)]

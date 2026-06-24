@@ -318,3 +318,163 @@ fn inverse_quantizer_reset_anchors_are_sign_symmetric() {
     assert_eq!((32 * -(3101 << 3)) >> 15, -25);
     assert_eq!((32 * (3101 << 3)) >> 15, 24);
 }
+
+// -----------------------------------------------------------------------
+// Joint analysis ↔ synthesis QMF near-perfect-reconstruction.
+//
+// The transmit (analysis) and receive (synthesis) banks share the single
+// 24-tap symmetric coefficient set of Table 11/G.722 (p. 27) — the
+// defining property of a quadrature mirror filter bank (the decode trace
+// `docs/audio/adpcm/g722/g722-decode-trace.md` §3.3 calls this out: "the
+// same filter is used for analysis (encoder) and synthesis (decoder)").
+// Cascading the two banks with the sub-band pair passed straight through
+// (no ADPCM quantization in between) must therefore reconstruct the
+// 16 kHz input as a *delayed, unity-gain* copy, up to the small integer
+// rounding noise of the two `>>` normalisation stages.
+//
+// The two earlier per-bank tests (`transmit_qmf_dc_splits...` in the
+// encoder and `receive_qmf_lower_band_dc_has_unity_gain` in the decoder)
+// each pin one bank's DC gain in isolation. They do *not* pin the joint
+// arithmetic: a transpose of the even/odd delay-line assignment, an
+// off-by-one in the RECA/RECB sign convention, or a one-bit error in
+// *either* `>> 13` / `>> 12` shift can still leave both isolated DC gains
+// correct while destroying the reconstruction. This section walks a
+// Kronecker impulse through both banks via the QMF-only test accessors
+// (`Encoder::analysis_qmf_step` / `Decoder::synthesis_qmf_step`) and pins
+// the reconstructed peak position, the unity gain, the 1:1 delay
+// tracking, and the bounded rounding-noise sidelobes — every value the
+// deterministic output of the production QMF integer arithmetic on a
+// fully spec-enumerable input.
+// -----------------------------------------------------------------------
+
+/// Run the impulse `x[impulse_idx] = amp` (all other input samples zero)
+/// through the analysis QMF and then straight into the synthesis QMF
+/// (no quantization), returning the reconstructed 16 kHz output.
+fn qmf_reconstruct(len: usize, impulse_idx: usize, amp: i32) -> alloc::vec::Vec<i32> {
+    assert!(len % 2 == 0, "QMF processes 16 kHz samples in pairs");
+    let mut x = alloc::vec![0_i32; len];
+    x[impulse_idx] = amp;
+    let mut enc = Encoder::new();
+    let mut dec = Decoder::new(Mode::Mode1);
+    let mut out = alloc::vec::Vec::with_capacity(len);
+    for k in 0..len / 2 {
+        let (xl, xh) = enc.analysis_qmf_step(x[2 * k], x[2 * k + 1]);
+        let (o1, o2) = dec.synthesis_qmf_step(xl, xh);
+        out.push(o1);
+        out.push(o2);
+    }
+    out
+}
+
+/// Reconstructed 16 kHz output of the cascaded analysis→synthesis QMF for
+/// a single `4096`-amplitude impulse at input index 0 (48 output
+/// samples). The peak lands at index 22 — the filter bank's fixed
+/// reconstruction delay — at the exact input amplitude `4096`, ringed by
+/// `0 / ±1 / ±2` rounding-noise sidelobes. Hand-derived by stepping the
+/// Table 11/G.722 24-tap symmetric convolution through both banks'
+/// integer arithmetic (`>> 13` analysis, `>> 12` synthesis).
+const GOLDEN_QMF_IMPULSE_4096: [i32; 48] = [
+    -1, 0, 0, -1, -1, 0, 0, -1, -2, 0, -1, -1, 0, -2, -1, -1, -1, 0, -1, -2, 0, -1, 4096, -1, 0,
+    -1, -1, -1, -1, 0, -1, -1, 0, -2, -1, -1, -2, 0, 0, -1, -1, -1, 0, 0, -1, -1, 0, 0,
+];
+
+/// The fixed reconstruction delay (output sample index of the peak for an
+/// impulse at input index 0). The 24-tap symmetric QMF pair has a group
+/// delay of 23 samples at 16 kHz; the cascade peaks one sample earlier
+/// because the analysis bank emits its pair `(x_L, x_H)` from the *newer*
+/// of the two input samples (`x_in(j)` lands in `even[0]`).
+const QMF_RECONSTRUCTION_DELAY: usize = 22;
+
+#[test]
+fn joint_qmf_reconstructs_impulse_bit_exactly() {
+    let out = qmf_reconstruct(48, 0, 4096);
+    assert_eq!(
+        out.as_slice(),
+        GOLDEN_QMF_IMPULSE_4096.as_slice(),
+        "cascaded analysis→synthesis QMF diverged from the golden impulse response"
+    );
+}
+
+#[test]
+fn joint_qmf_reconstructs_with_unity_gain_across_amplitudes() {
+    // The peak always lands at the fixed reconstruction delay and equals
+    // the input amplitude within ±2 — the two `>>` normalisation stages
+    // each truncate toward negative infinity, so a negative full-scale
+    // impulse can lose up to one unit at each stage (e.g. -8192 → -8194)
+    // while positive impulses reconstruct to within +1. This pins both
+    // shift counts jointly: a one-bit error in either would scale the
+    // peak by 2 or 1/2, far outside this ±2 truncation band.
+    for &amp in &[100_i32, 4096, 8192, 16383, -4096, -8192] {
+        let out = qmf_reconstruct(48, 0, amp);
+        let peak = out[QMF_RECONSTRUCTION_DELAY];
+        assert!(
+            (peak - amp).abs() <= 2,
+            "QMF peak {peak} not within ±2 of input amplitude {amp}"
+        );
+        // The peak is the global extremum: every other sample is bounded
+        // rounding noise far below |amp| (for the small amplitudes the
+        // ±-noise floor still cannot reach the peak because |amp| ≥ 100).
+        let max_sidelobe = out
+            .iter()
+            .enumerate()
+            .filter(|&(i, _)| i != QMF_RECONSTRUCTION_DELAY)
+            .map(|(_, &v)| v.abs())
+            .max()
+            .unwrap();
+        assert!(
+            max_sidelobe < peak.abs(),
+            "sidelobe {max_sidelobe} reached the reconstruction peak {peak}"
+        );
+    }
+}
+
+#[test]
+fn joint_qmf_delay_tracks_impulse_position_one_to_one() {
+    // Shifting the input impulse by an even number of 16 kHz samples
+    // shifts the reconstructed peak by exactly the same amount: the
+    // cascade is a pure linear-phase delay line. (Even shifts keep the
+    // impulse on the analysis bank's `x_second` slot so the comparison is
+    // apples-to-apples.)
+    for shift in [0_usize, 2, 4, 6, 8] {
+        let out = qmf_reconstruct(64, shift, 4096);
+        let peak_idx = out
+            .iter()
+            .enumerate()
+            .max_by_key(|&(_, &v)| v.abs())
+            .map(|(i, _)| i)
+            .unwrap();
+        assert_eq!(
+            peak_idx,
+            QMF_RECONSTRUCTION_DELAY + shift,
+            "impulse shifted by {shift} did not shift the reconstruction peak 1:1"
+        );
+        assert_eq!(out[peak_idx], 4096, "shifted peak lost unity gain");
+    }
+}
+
+#[test]
+fn joint_qmf_sidelobes_are_bounded_rounding_noise() {
+    // Away from the peak the reconstruction error is pure integer
+    // rounding noise from the two `>>` stages: each sidelobe magnitude is
+    // tiny (≤ 5 even at full scale) and the total absolute sidelobe
+    // energy is a small fixed budget, independent of the (linear) peak.
+    let out = qmf_reconstruct(48, 0, 4096);
+    let sidelobe_energy: i32 = out
+        .iter()
+        .enumerate()
+        .filter(|&(i, _)| i != QMF_RECONSTRUCTION_DELAY)
+        .map(|(_, &v)| v.abs())
+        .sum();
+    assert_eq!(
+        sidelobe_energy, 35,
+        "QMF rounding-noise sidelobe budget changed"
+    );
+    for (i, &v) in out.iter().enumerate() {
+        if i != QMF_RECONSTRUCTION_DELAY {
+            assert!(
+                v.abs() <= 2,
+                "sidelobe at {i} = {v} exceeds the ±2 rounding-noise bound"
+            );
+        }
+    }
+}

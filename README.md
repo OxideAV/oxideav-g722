@@ -19,7 +19,16 @@ in `src/conformance.rs`. The clause-2.4.2 attenuation/frequency mask
 is **operationally enforced on the real codec** across all three
 modes via the `transmission::measure_tone_response` helper. Both
 spec-enumerated synthesisable Appendix-II sequences are now driven
-bit-exact end-to-end: the II.3.2 artificial Configuration-2 sequence
+bit-exact end-to-end. The **joint analysis↔synthesis QMF filter bank**
+is additionally pinned to its near-perfect-reconstruction property: a
+Kronecker impulse cascaded through the transmit and receive QMFs (no
+ADPCM quantization between) reconstructs the input as a unity-gain,
+fixed-delay copy, anchored bit-exact (golden 48-sample impulse
+response, ±2 two-stage-truncation unity-gain band across `±100 …
+±16383`, 1:1 linear-phase delay tracking, bounded `±2` rounding-noise
+sidelobes) — a check the two earlier per-bank DC-gain tests cannot make
+because each pins only one bank in isolation. The II.3.2 artificial
+Configuration-2 sequence
 through the **receive** path and the Table II-3 overflow Configuration-1
 sequence through the **transmit** path (the latter exercising the
 pole/zero-section overflow controls). The II.3.2 receive sequence is
