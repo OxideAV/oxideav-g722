@@ -1,5 +1,7 @@
 # oxideav-g722
 
+[![CI](https://github.com/OxideAV/oxideav-g722/actions/workflows/ci.yml/badge.svg)](https://github.com/OxideAV/oxideav-g722/actions/workflows/ci.yml) [![crates.io](https://img.shields.io/crates/v/oxideav-g722.svg)](https://crates.io/crates/oxideav-g722) [![docs.rs](https://docs.rs/oxideav-g722/badge.svg)](https://docs.rs/oxideav-g722) [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 Pure-Rust SB-ADPCM codec for ITU-T G.722 wideband speech / audio at
 64 / 56 / 48 kbit/s. Zero C dependencies, no FFI, no `*-sys` crates.
 
