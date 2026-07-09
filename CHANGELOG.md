@@ -6,6 +6,71 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- **Round-401 operational clause-2 conformance: the complete measurable
+  set.** New `transmission::spectrum` module (exact least-squares
+  single-sinusoid fit, one-bin DFT via the second-order recurrence,
+  band-limited / peak-bin scans, Hz↔bin edge mapping — 12 unit tests)
+  plus three codec-loop measurement surfaces built on it: (1)
+  `measure_signal_to_distortion` — clause 2.4.6 prints the codec-loop
+  signal-to-total-distortion requirement as "Under study" (no mask),
+  so six quality gates pin the *measured* behaviour with ≈ 2 dB
+  headroom: per-mode/per-level S/D floors at the 1020 Hz clause 2.3
+  reference (Mode 1: 23.7–33.6 dB, Mode 2: 21.2–27.6 dB, Mode 3:
+  10.3–15.2 dB across −40…0 dBm0), strict Table 1 mode ordering,
+  higher-band (6 kHz) mode independence within 1 dB, adaptive-quantizer
+  level tracking (≤ 12 dB spread over a 40 dB stimulus range), and
+  recovered-component level accuracy; (2) `measure_idle_channel_spectrum`
+  — the clause 2.4.4 **narrow-band** (50–7000 Hz ≤ −66 dBm0) idle bound
+  and the clause 2.4.5 **selective** single-frequency bound (≤ −70 dBm0,
+  the called-out 8000 Hz bin pinned explicitly) enforced per DFT bin at
+  the digital boundary for all three modes, previously unreachable via
+  the wideband RMS; with a structural anchor that the idle steady state
+  is a pure constant ((r_L, r_H) = (1, 0) → +1 LSB in Mode 1, exactly 0
+  in Modes 2/3), so all idle energy is DC and the margins are
+  structural; (3) `measure_group_delay` — two-tone phase-slope reading:
+  clause 2.4.3 absolute group delay ≤ 4 ms enforced (measured ~22
+  samples ≈ 1.38 ms — the QMF cascade delay, matching the joint-QMF
+  impulse test's fixed delay index 22 — flat across an 11-frequency
+  50–7000 Hz sweep in all three modes, ≈ 2.9× headroom).
+- **Round-401 bitstream-surface robustness + fuzz.** New
+  `src/robustness.rs` (deterministic xorshift driver, 8 tests) drives
+  the public surface adversarially and asserts the LIMIT / Table 9
+  saturation invariants: decoder totality over arbitrary octet streams
+  (every `u8` is a valid clause 1.4.4 octet), adversarial mid-stream
+  `set_mode`/`reset` interleaving, all 65 536 raw codeword byte pairs
+  through `decode_subband_pair`, encoder totality + determinism over
+  full-range `i32` PCM, chunked-vs-one-shot encode identity (the
+  `pending` path), and reset-equals-fresh stream identity. New `fuzz/`
+  cargo-fuzz scaffold (standalone workspace, four targets:
+  `decode_stream`, `encode_roundtrip`, `subband_bypass`, `aux_channel`)
+  asserting the same spec-side invariants plus the Figure 1/G.722
+  auxiliary-channel round-trip contract; initial soak ~4.1 M
+  executions, zero findings. Test count 355→388 (+12 spectrum, +13
+  transmission, +8 robustness).
+
+### Fixed
+
+- **Transmit-QMF output clamp saturated after narrowing.** The
+  analysis-QMF accumulator was cast `i64 → i32` *before* the Table
+  9/G.722 ±16384 clamp, so PCM input beyond the documented 14-bit
+  domain wrapped through the cast and came back sign-flipped (a
+  constant positive-rail input encoded as an alternating ±full-scale
+  lower sub-band) instead of pinning at the rail. The clamp now takes
+  the full-width accumulator, matching the receive-side clamp.
+  Bit-exact for every in-domain input; regression-pinned in
+  `robustness.rs`.
+- **Clause 5.2 saturation operators overflowed `i32` on out-of-domain
+  sub-band input.** The spec `+`/`−` operators computed the `i32`
+  intermediate before clamping to the 16-bit rails, so the Appendix-II
+  QMF-bypass entry points could overflow (debug panic) when driven
+  past the 15-bit Table II-1 domain. Now saturating at the `i32` rails
+  first — bit-identical for every 16-bit operand pair.
+- **Decoder module header cited a stale Recommendation edition.** The
+  doc comment named "(09/2012)"; the staged clean-room reference is the
+  11/88 edition, whose figure numbering the header already used. Also
+  completed the higher-band figure span (BLOCKs 2H–5H = Figures
+  28–31/G.722).
+
 - **Round-367 joint analysis↔synthesis QMF near-perfect-reconstruction
   conformance.** The transmit (analysis) and receive (synthesis) QMF
   banks share the single 24-tap symmetric Table 11/G.722 coefficient set

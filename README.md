@@ -19,7 +19,18 @@ reset-state inverse-quantizer anchors (every Table 14 / 17 / 18 /
 19 / 6 row), and a single-step hand-derivation anchor are all pinned
 in `src/conformance.rs`. The clause-2.4.2 attenuation/frequency mask
 is **operationally enforced on the real codec** across all three
-modes via the `transmission::measure_tone_response` helper. Both
+modes via the `transmission::measure_tone_response` helper, and the
+rest of the measurable clause-2.4 set is now enforced the same way:
+the clause-2.4.3 **absolute group delay** (two-tone phase-slope
+reading: ~22 samples ≈ 1.38 ms ≤ 4 ms, flat across an 11-frequency
+50–7000 Hz sweep, all modes), the clause-2.4.4 **narrow-band idle
+noise** (50–7000 Hz ≤ −66 dBm0) and clause-2.4.5 **selective
+single-frequency noise** (≤ −70 dBm0 per DFT bin, 8000 Hz pinned
+explicitly) — with the idle steady state proven to be a pure DC
+constant (+1 LSB Mode 1, 0 Modes 2/3), so the margins are structural —
+and the clause-2.4.6 **signal-to-total-distortion** quantity (printed
+"Under study": no normative mask exists) pinned as measured-behaviour
+quality gates with ≈ 2 dB headroom per mode / level / sub-band. Both
 spec-enumerated synthesisable Appendix-II sequences are now driven
 bit-exact end-to-end. The **joint analysis↔synthesis QMF filter bank**
 is additionally pinned to its near-perfect-reconstruction property: a
@@ -102,6 +113,25 @@ registry.
   every step. This guards the entire shared adaptation loop (PARREC /
   UPPOL1 / UPPOL2 / UPZERO / LOGSCL / SCALEL) against the silent
   divergences the loose silence/energy-envelope tests cannot see.
+- `transmission::spectrum` + three codec-loop measurement surfaces:
+  `measure_signal_to_distortion` (exact least-squares signal /
+  total-distortion split with matched-window phase readings),
+  `measure_idle_channel_spectrum` (per-DFT-bin idle sweep against the
+  clause 2.4.4 narrow-band + clause 2.4.5 selective limits), and
+  `measure_group_delay` (two-tone phase-slope, clause 2.4.3), all
+  driven as conformance tests on the real codec in every mode.
+- Bitstream-surface robustness: the public API is total (and pinned
+  deterministic) over arbitrary octet streams, full-range `i32` PCM,
+  raw codeword bytes, and adversarial mid-stream `set_mode` / `reset`
+  interleavings, asserting the LIMIT / Table 9 saturation invariants
+  (`src/robustness.rs`); two latent out-of-domain bugs found and fixed
+  in the process (transmit-QMF clamp-after-narrowing sign flip;
+  clause 5.2 saturation operators overflowing `i32` on out-of-domain
+  sub-band input).
+- `fuzz/`: four cargo-fuzz targets (`decode_stream`,
+  `encode_roundtrip`, `subband_bypass`, `aux_channel`) asserting the
+  same spec-side invariants plus the Figure 1/G.722 auxiliary-channel
+  round-trip contract.
 - `transmission` module: the normative limits of clause 2 (clock
   rates, sample-clock tolerance, overload point, passband, group
   delay, idle / single-frequency noise) as typed constants citing
