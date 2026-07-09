@@ -95,8 +95,8 @@ impl TransmitQmf {
         // / difference are formed *before* the shift, exactly as the
         // LOWT / HIGHT sub-blocks specify, then saturated to the
         // 14-bit-uniform Table 9 range.
-        let xl = clamp_qmf(((xa + xb) >> 13) as i32);
-        let xh = clamp_qmf(((xa - xb) >> 13) as i32);
+        let xl = clamp_qmf((xa + xb) >> 13);
+        let xh = clamp_qmf((xa - xb) >> 13);
         (xl, xh)
     }
 }
@@ -104,8 +104,21 @@ impl TransmitQmf {
 /// Limit a QMF output to the 14-bit-uniform range described in
 /// Table 9/G.722 (page 25: signals are limited to ± 16384/16383 in
 /// 2's-complement).
-fn clamp_qmf(v: i32) -> i32 {
-    v.clamp(-16384, 16383)
+///
+/// Takes the full-width accumulator value (matching the decoder-side
+/// receive-QMF clamp): saturation must happen *before* any narrowing,
+/// otherwise a caller feeding samples beyond the documented 14-bit
+/// input domain would see the accumulator wrap through the narrowing
+/// cast and come back with the wrong sign instead of pinned at the
+/// Table 9 rail.
+fn clamp_qmf(v: i64) -> i32 {
+    if v > 16383 {
+        16383
+    } else if v < -16384 {
+        -16384
+    } else {
+        v as i32
+    }
 }
 
 // -----------------------------------------------------------------------

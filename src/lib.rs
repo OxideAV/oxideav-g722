@@ -66,6 +66,8 @@ mod conformance;
 mod decoder;
 mod encoder;
 mod predictor;
+#[cfg(test)]
+mod robustness;
 mod tables;
 pub mod test_harness;
 pub mod transmission;

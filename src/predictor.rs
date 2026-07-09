@@ -24,15 +24,24 @@ pub(crate) const fn sat16(x: i32) -> i32 {
 }
 
 /// Saturating add (spec `+` operator with overflow / underflow clamping).
+///
+/// The intermediate sum saturates at the i32 rails before [`sat16`]
+/// narrows it: bit-identical for every in-range (16-bit) operand pair
+/// — where `a + b` cannot overflow i32 — while staying total when a
+/// caller drives the QMF-bypass entry points with sub-band samples
+/// beyond the documented 15-bit Appendix-II domain (any i32 overflow
+/// would land past the 16-bit rails anyway, so saturating first
+/// yields the same clamped result).
 #[inline]
 pub(crate) const fn add(a: i32, b: i32) -> i32 {
-    sat16(a + b)
+    sat16(a.saturating_add(b))
 }
 
-/// Saturating subtract (spec `−` operator).
+/// Saturating subtract (spec `−` operator). Same totality note as
+/// [`add`].
 #[inline]
 pub(crate) const fn sub(a: i32, b: i32) -> i32 {
-    sat16(a - b)
+    sat16(a.saturating_sub(b))
 }
 
 /// Multiplication per the spec's `*` operator: `(A * B) >> 15` using
