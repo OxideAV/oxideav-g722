@@ -31,7 +31,21 @@ All notable changes to this project will be documented in this file.
   clause 2.4.3 absolute group delay ≤ 4 ms enforced (measured ~22
   samples ≈ 1.38 ms — the QMF cascade delay, matching the joint-QMF
   impulse test's fixed delay index 22 — flat across an 11-frequency
-  50–7000 Hz sweep in all three modes, ≈ 2.9× headroom).
+  50–7000 Hz sweep in all three modes, ≈ 2.9× headroom). Additionally:
+  the clause 2.4.2 operational sweep now walks the **entire Figure 10
+  mask domain** (previously 100–3400 Hz only): the 50–100 Hz low
+  transition, both in-band corridors across the 4 kHz QMF split, the
+  printed breakpoints, and the 7–8 kHz high transition (measured worst
+  −0.47 dB at 4.5 kHz vs the −1 dB bound); a clause 2.4.1 gate pins the
+  **nominal 3-dB bandwidth** operationally (end-to-end loss at the 50 /
+  7000 Hz band edges within 3 dB of the 1020 Hz reference — the loop is
+  flat to hundredths of a dB, leaving the full budget to the audio-part
+  filters); and the clause 2.5.7 / Figure 16 **gain-variation corridor**
+  is pinned on the codec loop with the selective meter: Modes 1/2 meet
+  the printed audio-parts corridor across −61…+8 dBm0 except a
+  characterized ≤ 1.0 dB positive-bias window at −56…−53 dBm0, and the
+  4-bit Mode 3 (which trades this quality per Table 1) is enveloped at
+  ≤ 2.5 dB / ≤ 6 dB. Test count 355→392.
 - **Round-401 bitstream-surface robustness + fuzz.** New
   `src/robustness.rs` (deterministic xorshift driver, 8 tests) drives
   the public surface adversarially and asserts the LIMIT / Table 9
@@ -45,8 +59,7 @@ All notable changes to this project will be documented in this file.
   `decode_stream`, `encode_roundtrip`, `subband_bypass`, `aux_channel`)
   asserting the same spec-side invariants plus the Figure 1/G.722
   auxiliary-channel round-trip contract; initial soak ~4.1 M
-  executions, zero findings. Test count 355→388 (+12 spectrum, +13
-  transmission, +8 robustness).
+  executions, zero findings.
 
 ### Fixed
 

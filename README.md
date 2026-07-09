@@ -30,7 +30,15 @@ explicitly) — with the idle steady state proven to be a pure DC
 constant (+1 LSB Mode 1, 0 Modes 2/3), so the margins are structural —
 and the clause-2.4.6 **signal-to-total-distortion** quantity (printed
 "Under study": no normative mask exists) pinned as measured-behaviour
-quality gates with ≈ 2 dB headroom per mode / level / sub-band. Both
+quality gates with ≈ 2 dB headroom per mode / level / sub-band. The
+clause-2.4.2 sweep covers the **entire Figure 10 mask domain** (50 Hz
+low transition through the 7–8 kHz high transition), the
+clause-2.4.1 **nominal 3-dB bandwidth** is checked at both printed
+band edges, and the clause-2.5.7 / Figure 16 **gain-variation
+corridor** — an audio-parts requirement — is met outright by the
+Mode 1 / 2 codec loops under the selective meter (except a
+characterized ≤ 1 dB window at −56…−53 dBm0), with the 4-bit Mode 3
+enveloped empirically. Both
 spec-enumerated synthesisable Appendix-II sequences are now driven
 bit-exact end-to-end. The **joint analysis↔synthesis QMF filter bank**
 is additionally pinned to its near-perfect-reconstruction property: a
