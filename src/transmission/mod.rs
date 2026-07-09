@@ -20,6 +20,7 @@
 //! | clause 2.4.4  | Idle noise (in 50…7000 Hz, no input)         | ≤ −66 dBm0               | [`IDLE_NOISE_MAX_DBM0_NARROWBAND`] |
 //! | clause 2.4.4  | Idle noise (in 50…20000 Hz, no input)        | ≤ −60 dBm0               | [`IDLE_NOISE_MAX_DBM0_WIDEBAND`] |
 //! | clause 2.4.5  | Single-frequency noise                       | ≤ −70 dBm0               | [`SINGLE_FREQUENCY_NOISE_MAX_DBM0`] |
+//! | clause 2.4.6  | Codec-loop signal-to-total distortion        | "Under study" (no mask)  | [`measure_signal_to_distortion`] (measured-behaviour regression gates) |
 //! | clause 2.5.1  | Input anti-aliasing-filter mask              | Figure 11 / G.722        | [`anti_aliasing_filter`] |
 //! | clause 2.5.2  | Output reconstructing-filter mask            | Figure 12 / G.722        | [`reconstructing_filter`] |
 //! | clause 2.5.3  | Group-delay-distortion mask                  | Figure 13 / G.722        | [`group_delay_distortion`] |
@@ -410,6 +411,126 @@ pub fn measure_tone_response(
     }
 }
 
+// -----------------------------------------------------------------------
+// End-to-end signal-to-total-distortion measurement (clause 2.4.6 /
+// clause 2.5.5 measurement shape, applied at the digital boundary)
+// -----------------------------------------------------------------------
+
+/// Returned by [`measure_signal_to_distortion`]: a selective
+/// signal-vs-total-distortion reading of an SB-ADPCM encode → decode
+/// loop driven by a single sinusoid.
+///
+/// The measurement shape follows clause 2.5.5 (page 13: "the ratio of
+/// signal-to-total distortion power … measured unweighted") — the
+/// output record is decomposed into the sinusoidal component at the
+/// stimulus frequency (the *signal*) and everything else (the *total
+/// distortion*), via the exact least-squares fit of
+/// [`spectrum::fit_sine`]. For the **codec** itself the corresponding
+/// requirement, clause 2.4.6 (page 11), is "Under study" — the
+/// Recommendation prints no codec-loop S/D mask — so codec-loop
+/// readings taken with this helper are *quality-regression* anchors
+/// pinned against measured behaviour, not normative limits.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct SignalToDistortionReport {
+    /// Stimulus frequency in Hz.
+    pub frequency_hz: f64,
+    /// Requested stimulus level in dBm0.
+    pub input_level_dbm0: f64,
+    /// RMS of the recovered sinusoidal component at the stimulus
+    /// frequency (14-bit uniform-PCM units).
+    pub signal_rms_uniform_pcm: f64,
+    /// [`Self::signal_rms_uniform_pcm`] as a dBm0 level.
+    pub signal_dbm0: f64,
+    /// RMS of everything in the output record that is *not* the
+    /// stimulus-frequency component (quantization noise, harmonics,
+    /// aliasing residue) — the unweighted "total distortion".
+    pub distortion_rms_uniform_pcm: f64,
+    /// [`Self::distortion_rms_uniform_pcm`] as a dBm0 level.
+    pub distortion_dbm0: f64,
+    /// Signal-to-total-distortion ratio in dB
+    /// (`20·log10(signal_rms / distortion_rms)`); `f64::INFINITY`
+    /// when the distortion is exactly zero.
+    pub ratio_db: f64,
+    /// Phase (radians, at the first measured sample) of the fitted
+    /// *input* component over the same window — the reference reading
+    /// for the clause 2.4.3 group-delay probe.
+    pub input_phase_radians: f64,
+    /// Phase (radians, at the first measured sample) of the fitted
+    /// *output* component. `input_phase_radians −
+    /// output_phase_radians` (mod 2π) is the phase lag the codec
+    /// imposes at this frequency.
+    pub output_phase_radians: f64,
+}
+
+/// Drive `encoder` → `decoder` with a `frequency_hz` sinusoid at
+/// `input_level_dbm0` and split the steady-state output into
+/// signal-at-frequency vs total distortion.
+///
+/// The stimulus is synthesised at the 16 kHz PCM rate exactly as in
+/// [`measure_tone_response`]; the first 256 output samples (16 ms —
+/// several clause 3.5 / 3.6 scale-factor time constants) are dropped,
+/// and both the input and output records are least-squares-fitted over
+/// the *same* absolute sample window so the two phase readings share a
+/// time origin (their difference is the codec's phase lag, the
+/// clause 2.4.3 group-delay probe).
+pub fn measure_signal_to_distortion(
+    encoder: &mut Encoder,
+    decoder: &mut Decoder,
+    frequency_hz: f64,
+    input_level_dbm0: f64,
+    samples: usize,
+) -> SignalToDistortionReport {
+    use core::f64::consts::TAU;
+    let amplitude = dbm0_to_uniform_pcm(input_level_dbm0) * core::f64::consts::SQRT_2;
+    let cycles_per_sample = frequency_hz / PCM_SAMPLE_CLOCK_HZ as f64;
+    let pcm_in: alloc::vec::Vec<i32> = (0..samples)
+        .map(|n| (amplitude * (TAU * cycles_per_sample * n as f64).sin()).round() as i32)
+        .collect();
+    let octets = encoder.encode(&pcm_in);
+    let pcm_out = decoder.decode(&octets);
+
+    let skip = pcm_out.len().min(256);
+    let out_window = &pcm_out[skip..];
+    let in_window = &pcm_in[skip..pcm_in.len().min(skip + out_window.len())];
+
+    let out_fit = spectrum::fit_sine(out_window, cycles_per_sample);
+    let in_fit = spectrum::fit_sine(in_window, cycles_per_sample);
+
+    let signal_rms = out_fit.component_rms;
+    let distortion_rms = out_fit.residual_rms;
+    let ratio_db = if distortion_rms > 0.0 {
+        20.0 * (signal_rms / distortion_rms).log10()
+    } else if signal_rms > 0.0 {
+        f64::INFINITY
+    } else {
+        f64::NEG_INFINITY
+    };
+    SignalToDistortionReport {
+        frequency_hz,
+        input_level_dbm0,
+        signal_rms_uniform_pcm: signal_rms,
+        signal_dbm0: uniform_pcm_rms_to_dbm0(signal_rms),
+        distortion_rms_uniform_pcm: distortion_rms,
+        distortion_dbm0: uniform_pcm_rms_to_dbm0(distortion_rms),
+        ratio_db,
+        input_phase_radians: in_fit.phase_radians,
+        output_phase_radians: out_fit.phase_radians,
+    }
+}
+
+/// Convenience wrapper: fresh encoder + decoder in `mode`, one
+/// [`measure_signal_to_distortion`] run over a 8192-sample (512 ms)
+/// stimulus.
+pub fn measure_signal_to_distortion_default(
+    mode: Mode,
+    frequency_hz: f64,
+    input_level_dbm0: f64,
+) -> SignalToDistortionReport {
+    let mut enc = Encoder::new();
+    let mut dec = Decoder::new(mode);
+    measure_signal_to_distortion(&mut enc, &mut dec, frequency_hz, input_level_dbm0, 8192)
+}
+
 extern crate alloc;
 
 // -----------------------------------------------------------------------
@@ -744,5 +865,166 @@ mod tests {
         let r = measure_tone_response(&mut enc, &mut dec, 1020.0, f64::NEG_INFINITY, 512);
         assert_eq!(r.gain_db, f64::NEG_INFINITY);
         assert_eq!(r.attenuation_db, f64::INFINITY);
+    }
+
+    // -------------------------------------------------------------------
+    // Whole-codec signal-to-total-distortion quality gates.
+    //
+    // Clause 2.4.6 (page 11) leaves the codec-loop S/D requirement
+    // "Under study" — the Recommendation prints no mask for the
+    // SB-ADPCM loop itself (the Figure 14/G.722 mask of clause 2.5.5
+    // constrains only the audio parts of the Figure 9b loop). The
+    // gates below therefore pin the *measured* behaviour of this
+    // implementation, with ≈ 2 dB of headroom, so any predictor /
+    // quantizer / QMF regression that degrades the reconstruction
+    // quality trips a test even though no normative floor exists.
+    // The measurement itself is the clause 2.5.5 shape (selective
+    // signal vs unweighted total distortion) applied at the digital
+    // boundary of the Figure 9a loop.
+    // -------------------------------------------------------------------
+
+    /// Stimulus levels (dBm0) for the S/D gates below.
+    const SD_LEVELS_DBM0: [f64; 5] = [-40.0, -30.0, -20.0, -10.0, 0.0];
+
+    #[test]
+    fn codec_sd_floors_at_reference_frequency_all_modes() {
+        // Measured (8192-sample window, 256-sample warm-up skip):
+        //   Mode 1: 23.7 / 29.9 / 32.8 / 31.8 / 33.6 dB
+        //   Mode 2: 21.2 / 25.0 / 27.0 / 26.0 / 27.6 dB
+        //   Mode 3: 10.3 / 13.4 / 15.2 / 11.5 / 13.9 dB
+        // Floors sit ≈ 2 dB under the measurements.
+        let floors: [(Mode, [f64; 5]); 3] = [
+            (Mode::Mode1, [21.5, 27.5, 30.5, 29.5, 31.5]),
+            (Mode::Mode2, [19.0, 22.5, 24.5, 23.5, 25.0]),
+            (Mode::Mode3, [8.0, 11.0, 13.0, 9.5, 11.5]),
+        ];
+        let f = NOMINAL_REFERENCE_FREQUENCY_HZ as f64;
+        for (mode, mode_floors) in floors {
+            for (lvl, floor) in SD_LEVELS_DBM0.iter().zip(mode_floors.iter()) {
+                let r = measure_signal_to_distortion_default(mode, f, *lvl);
+                assert!(
+                    r.ratio_db >= *floor,
+                    "{mode:?} @ {lvl} dBm0: S/D {:.2} dB fell under the {floor} dB gate",
+                    r.ratio_db
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn codec_sd_mode_ordering_at_reference_frequency() {
+        // The three modes decode 6 / 5 / 4 lower-sub-band bits
+        // (Table 1 page 3), so at a lower-band stimulus the S/D must
+        // strictly improve with each extra decoded bit, at every
+        // level. Measured gaps: Mode1−Mode2 ≥ 2.5 dB, Mode2−Mode3
+        // ≥ 10.9 dB across the level grid; gates at 2 / 8 dB.
+        let f = NOMINAL_REFERENCE_FREQUENCY_HZ as f64;
+        for lvl in SD_LEVELS_DBM0 {
+            let m1 = measure_signal_to_distortion_default(Mode::Mode1, f, lvl).ratio_db;
+            let m2 = measure_signal_to_distortion_default(Mode::Mode2, f, lvl).ratio_db;
+            let m3 = measure_signal_to_distortion_default(Mode::Mode3, f, lvl).ratio_db;
+            assert!(
+                m1 - m2 >= 2.0,
+                "@ {lvl} dBm0: Mode1 {m1:.2} not ≥ 2 dB above Mode2 {m2:.2}"
+            );
+            assert!(
+                m2 - m3 >= 8.0,
+                "@ {lvl} dBm0: Mode2 {m2:.2} not ≥ 8 dB above Mode3 {m3:.2}"
+            );
+        }
+    }
+
+    #[test]
+    fn codec_sd_higher_band_is_mode_independent() {
+        // A 6 kHz stimulus sits above the 4 kHz QMF split, so its
+        // coding runs through the 2-bit higher-sub-band loop, which
+        // Table 1 (page 3) keeps identical across the three modes —
+        // only the lower band loses LSBs. Measured: ≥ 13.4 dB S/D at
+        // every mode / level, with ≤ 0.4 dB spread across modes.
+        // Gates: 11.5 dB floor, 1.0 dB spread.
+        for lvl in SD_LEVELS_DBM0 {
+            let sds: alloc::vec::Vec<f64> = [Mode::Mode1, Mode::Mode2, Mode::Mode3]
+                .into_iter()
+                .map(|m| measure_signal_to_distortion_default(m, 6000.0, lvl).ratio_db)
+                .collect();
+            for sd in &sds {
+                assert!(
+                    *sd >= 11.5,
+                    "@ {lvl} dBm0: higher-band S/D {sd:.2} under the 11.5 dB gate"
+                );
+            }
+            let spread = sds.iter().cloned().fold(f64::MIN, f64::max)
+                - sds.iter().cloned().fold(f64::MAX, f64::min);
+            assert!(
+                spread <= 1.0,
+                "@ {lvl} dBm0: higher-band S/D spread {spread:.2} dB across modes"
+            );
+        }
+    }
+
+    #[test]
+    fn codec_sd_is_level_tracking_like_an_adaptive_quantizer() {
+        // The whole point of the clause 3.5 / 3.6 adaptive scale
+        // factors is that reconstruction quality stays roughly
+        // constant across a wide input-level range (the quantizer
+        // rescales rather than drowning quiet signals). Gate: the
+        // Mode-1 S/D spread across the −40 … 0 dBm0 grid stays
+        // within 12 dB (measured 9.8 dB), i.e. nowhere near the
+        // 40 dB spread a *fixed* quantizer would show over the same
+        // grid.
+        let f = NOMINAL_REFERENCE_FREQUENCY_HZ as f64;
+        let sds: alloc::vec::Vec<f64> = SD_LEVELS_DBM0
+            .iter()
+            .map(|&lvl| measure_signal_to_distortion_default(Mode::Mode1, f, lvl).ratio_db)
+            .collect();
+        let spread = sds.iter().cloned().fold(f64::MIN, f64::max)
+            - sds.iter().cloned().fold(f64::MAX, f64::min);
+        assert!(
+            spread <= 12.0,
+            "Mode 1 S/D spread {spread:.2} dB across −40…0 dBm0 (grid {sds:?})"
+        );
+    }
+
+    #[test]
+    fn codec_sd_recovered_signal_tracks_the_stimulus_level() {
+        // The fitted at-frequency component must come back at the
+        // stimulus level: within 1 dB for Modes 1 / 2 (measured worst
+        // 0.4 dB, at the 6 kHz higher-band tone), within 4.5 dB for
+        // the 4-bit Mode 3 (measured worst 3.8 dB, at 3 kHz /
+        // −40 dBm0 where the truncated quantizer's reconstruction
+        // bias is largest). This is the level-accounting cross-check
+        // between dbm0_to_uniform_pcm and the codec's unity passband
+        // gain (clause 2.4.2).
+        for (mode, tol) in [(Mode::Mode1, 1.0), (Mode::Mode2, 1.0), (Mode::Mode3, 4.5)] {
+            for f in [1020.0, 2000.0, 3000.0, 6000.0] {
+                for lvl in SD_LEVELS_DBM0 {
+                    let r = measure_signal_to_distortion_default(mode, f, lvl);
+                    assert!(
+                        (r.signal_dbm0 - lvl).abs() <= tol,
+                        "{mode:?} {f} Hz @ {lvl} dBm0: recovered {:.2} dBm0 off by more than {tol} dB",
+                        r.signal_dbm0
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn codec_sd_report_edge_cases_are_total() {
+        // Silence stimulus: no signal, no meaningful ratio — the
+        // report must stay finite-field-safe, never NaN.
+        let mut enc = Encoder::new();
+        let mut dec = Decoder::new(Mode::Mode1);
+        let r = measure_signal_to_distortion(&mut enc, &mut dec, 1020.0, f64::NEG_INFINITY, 512);
+        assert!(r.signal_rms_uniform_pcm < 4.0);
+        assert!(!r.ratio_db.is_nan());
+        // Records shorter than the warm-up skip yield an empty
+        // window; everything must come back zero / −∞, not NaN.
+        let mut enc = Encoder::new();
+        let mut dec = Decoder::new(Mode::Mode1);
+        let r = measure_signal_to_distortion(&mut enc, &mut dec, 1020.0, -10.0, 64);
+        assert_eq!(r.signal_rms_uniform_pcm, 0.0);
+        assert_eq!(r.distortion_rms_uniform_pcm, 0.0);
+        assert_eq!(r.ratio_db, f64::NEG_INFINITY);
     }
 }
