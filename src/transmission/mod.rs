@@ -1044,12 +1044,21 @@ mod tests {
 
     #[test]
     fn passband_sweep_stays_inside_clause_2_4_2_mask_mode1() {
-        // Sweep the printed Figure 10 in-band breakpoints plus a grid
-        // of passband frequencies through the codec and assert each
-        // measured attenuation meets the mask for its band. This is the
+        // Sweep the printed Figure 10 mask domain end-to-end: the
+        // 50 - 100 Hz low transition, both in-band corridors on either
+        // side of the 4 kHz QMF split (tight to 6.4 kHz, relaxed to
+        // 7 kHz), the printed corridor breakpoints themselves (50 /
+        // 100 / 6400 / 7000 Hz), and the 7 - 8 kHz high transition
+        // where only the -1 dB lower bound is printed. This is the
         // frequency-swept end-to-end companion of the single-tone test
-        // above and guards the whole passband, not just 1020 Hz.
-        for &f in &[100.0, 300.0, 500.0, 1020.0, 2000.0, 3000.0, 3400.0] {
+        // above and guards the whole mask domain, not just 1020 Hz.
+        // Measured worst case: -0.47 dB at 4.5 kHz (quantization
+        // noise inflating the level-meter reading), well inside the
+        // -1 dB bound.
+        for &f in &[
+            50.0, 75.0, 100.0, 300.0, 500.0, 1020.0, 2000.0, 3000.0, 3400.0, 3800.0, 4200.0,
+            4500.0, 5000.0, 6000.0, 6400.0, 6800.0, 7000.0, 7500.0,
+        ] {
             let mut enc = Encoder::new();
             let mut dec = Decoder::new(Mode::Mode1);
             let r = measure_tone_response(&mut enc, &mut dec, f, -10.0, 8192);
@@ -1058,6 +1067,40 @@ mod tests {
                 ok,
                 "{f} Hz attenuation {:.4} dB escaped the clause 2.4.2 mask",
                 r.attenuation_db
+            );
+        }
+    }
+
+    #[test]
+    fn nominal_3db_bandwidth_covers_50_to_7000_hz_mode1() {
+        // Clause 2.4.1 (p. 9): "The nominal 3 dB bandwidth is 50 to
+        // 7000 Hz." Operational reading: the end-to-end loss at both
+        // printed band edges, relative to the clause 2.3 reference
+        // frequency, stays within 3 dB. Measured: the codec is flat
+        // to a few hundredths of a dB at both edges (the 3 dB points
+        // of a deployed terminal come from the audio-part filters,
+        // clauses 2.5.1 / 2.5.2 — the SB-ADPCM loop itself must not
+        // consume the budget).
+        let mut enc = Encoder::new();
+        let mut dec = Decoder::new(Mode::Mode1);
+        let reference = measure_tone_response(
+            &mut enc,
+            &mut dec,
+            NOMINAL_REFERENCE_FREQUENCY_HZ as f64,
+            -10.0,
+            8192,
+        );
+        for f in [
+            NOMINAL_PASSBAND_LOW_HZ as f64,
+            NOMINAL_PASSBAND_HIGH_HZ as f64,
+        ] {
+            let mut enc = Encoder::new();
+            let mut dec = Decoder::new(Mode::Mode1);
+            let r = measure_tone_response(&mut enc, &mut dec, f, -10.0, 8192);
+            let relative_loss = r.attenuation_db - reference.attenuation_db;
+            assert!(
+                relative_loss.abs() <= 3.0,
+                "{f} Hz: {relative_loss:.4} dB relative to 1020 Hz breaches the 3 dB bandwidth"
             );
         }
     }
