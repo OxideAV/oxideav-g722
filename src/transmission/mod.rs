@@ -645,6 +645,98 @@ pub fn measure_signal_to_distortion_default(
     measure_signal_to_distortion(&mut enc, &mut dec, frequency_hz, input_level_dbm0, 8192)
 }
 
+// -----------------------------------------------------------------------
+// End-to-end group-delay measurement (clause 2.4.3)
+// -----------------------------------------------------------------------
+
+/// Returned by [`measure_group_delay`]: a two-tone phase-slope group
+/// delay reading of the looped codec, for the clause 2.4.3 limit
+/// ("The absolute group delay, defined as the minimum group delay for
+/// a sine wave signal between 50 and 7000 Hz, should not exceed 4 ms.
+/// The test level is −10 dBm0", page 9).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct GroupDelayReport {
+    /// Centre frequency (Hz) the group delay is evaluated at.
+    pub center_frequency_hz: f64,
+    /// Tone spacing (Hz) of the two probe measurements.
+    pub spacing_hz: f64,
+    /// Stimulus level in dBm0.
+    pub input_level_dbm0: f64,
+    /// Measured group delay in 16 kHz samples.
+    pub delay_samples: f64,
+    /// [`Self::delay_samples`] converted to milliseconds — compare
+    /// against [`ABSOLUTE_GROUP_DELAY_MAX_MS`].
+    pub delay_ms: f64,
+}
+
+/// Wrap an angle to the principal interval (−π, π].
+fn wrap_phase(mut phi: f64) -> f64 {
+    use core::f64::consts::{PI, TAU};
+    while phi <= -PI {
+        phi += TAU;
+    }
+    while phi > PI {
+        phi -= TAU;
+    }
+    phi
+}
+
+/// Measure the codec's group delay at `center_frequency_hz` by the
+/// phase-slope (two-tone) method: group delay is the derivative of
+/// phase lag with respect to angular frequency, so two independent
+/// looped-tone measurements at `center ± spacing/2` (each phase read
+/// via the exact least-squares fit of
+/// [`measure_signal_to_distortion`], input and output over the same
+/// window) give `τ = Δφ / Δω`. The per-tone phase lags are only known
+/// modulo 2π, but their *difference* is unambiguous provided
+/// `spacing_hz` is small enough that `Δφ` stays inside (−π, π] — with
+/// the default 40 Hz spacing that admits delays up to 200 samples
+/// (12.5 ms), comfortably beyond the 4 ms clause 2.4.3 ceiling.
+///
+/// A fresh encoder + decoder pair is constructed per tone so the two
+/// readings share the reset state of clauses 3.5 / 3.6.
+pub fn measure_group_delay(
+    mode: Mode,
+    center_frequency_hz: f64,
+    spacing_hz: f64,
+    input_level_dbm0: f64,
+    samples: usize,
+) -> GroupDelayReport {
+    use core::f64::consts::TAU;
+    let mut lag = [0.0_f64; 2];
+    let freqs = [
+        center_frequency_hz - spacing_hz / 2.0,
+        center_frequency_hz + spacing_hz / 2.0,
+    ];
+    for (slot, f) in lag.iter_mut().zip(freqs.iter()) {
+        let mut enc = Encoder::new();
+        let mut dec = Decoder::new(mode);
+        let r = measure_signal_to_distortion(&mut enc, &mut dec, *f, input_level_dbm0, samples);
+        // Positive lag = output behind input.
+        *slot = wrap_phase(r.input_phase_radians - r.output_phase_radians);
+    }
+    // A pure delay of d samples turns the output phase into
+    // φ_out(ω) = φ_in(ω) + ω·d, so the lag φ_in − φ_out falls with
+    // slope −d against ω: τ = −Δ(lag) / Δω. Δφ is wrapped to the
+    // principal interval; Δω is in rad/sample.
+    let dphi = wrap_phase(lag[1] - lag[0]);
+    let domega = TAU * spacing_hz / PCM_SAMPLE_CLOCK_HZ as f64;
+    let delay_samples = -dphi / domega;
+    GroupDelayReport {
+        center_frequency_hz,
+        spacing_hz,
+        input_level_dbm0,
+        delay_samples,
+        delay_ms: delay_samples * 1000.0 / PCM_SAMPLE_CLOCK_HZ as f64,
+    }
+}
+
+/// Convenience wrapper for the clause 2.4.3 measurement conditions:
+/// −10 dBm0 test level, 40 Hz probe spacing, 8192-sample records.
+pub fn measure_group_delay_default(mode: Mode, center_frequency_hz: f64) -> GroupDelayReport {
+    measure_group_delay(mode, center_frequency_hz, 40.0, -10.0, 8192)
+}
+
 extern crate alloc;
 
 // -----------------------------------------------------------------------
@@ -1224,5 +1316,90 @@ mod tests {
                 r.dc_component
             );
         }
+    }
+
+    // -------------------------------------------------------------------
+    // Operational group delay (clause 2.4.3).
+    // -------------------------------------------------------------------
+
+    /// Clause 2.4.3 sweep grid: the 50 - 7000 Hz probe band, avoiding
+    /// the exact 4 kHz QMF crossover where a single tone splits
+    /// between the sub-bands.
+    const GROUP_DELAY_SWEEP_HZ: [f64; 11] = [
+        100.0, 250.0, 500.0, 1020.0, 2000.0, 3000.0, 3500.0, 4500.0, 5000.0, 6000.0, 6800.0,
+    ];
+
+    #[test]
+    fn codec_absolute_group_delay_meets_clause_2_4_3() {
+        // Clause 2.4.3 (p. 9): the absolute group delay -- "defined as
+        // the minimum group delay for a sine wave signal between 50
+        // and 7000 Hz", test level -10 dBm0 -- "should not exceed
+        // 4 ms". Clause 2.4 quotes the limit for Mode 1. Measured:
+        // every point of the sweep sits at ~22 samples = ~1.38 ms, so
+        // both the spec's minimum-over-band reading and the (stronger)
+        // per-point ceiling clear the limit with ~2.9x headroom.
+        let mut min_ms = f64::INFINITY;
+        for f in GROUP_DELAY_SWEEP_HZ {
+            let r = measure_group_delay_default(Mode::Mode1, f);
+            assert!(
+                r.delay_ms > 0.0 && r.delay_ms <= ABSOLUTE_GROUP_DELAY_MAX_MS,
+                "{f} Hz: group delay {:.4} ms outside (0, 4] ms",
+                r.delay_ms
+            );
+            min_ms = min_ms.min(r.delay_ms);
+        }
+        assert!(
+            min_ms <= ABSOLUTE_GROUP_DELAY_MAX_MS,
+            "absolute (minimum) group delay {min_ms:.4} ms exceeded 4 ms"
+        );
+    }
+
+    #[test]
+    fn codec_group_delay_is_the_flat_qmf_cascade_delay_all_modes() {
+        // The QMF banks are linear-phase (clause 3.1 / clause 4.4:
+        // "linear phase non-recursive digital filters") and the ADPCM
+        // loops are memoryless in phase at steady state, so the codec
+        // group delay must be flat across frequency and equal to the
+        // fixed analysis+synthesis cascade delay. Measured: ~22
+        // samples at every sweep point, spread <= 1.3 samples in
+        // Modes 1 / 2 and <= 3.5 samples in the noisier 4-bit Mode 3
+        // (phase readings through a ~12 dB S/D loop jitter more).
+        // Envelope gates: 19.5 ..= 24.5 samples everywhere.
+        for mode in [Mode::Mode1, Mode::Mode2, Mode::Mode3] {
+            let mut lo = f64::INFINITY;
+            let mut hi = f64::NEG_INFINITY;
+            for f in GROUP_DELAY_SWEEP_HZ {
+                let d = measure_group_delay_default(mode, f).delay_samples;
+                assert!(
+                    (19.5..=24.5).contains(&d),
+                    "{mode:?} {f} Hz: group delay {d:.3} samples escaped the 19.5..=24.5 envelope"
+                );
+                lo = lo.min(d);
+                hi = hi.max(d);
+            }
+            let spread_limit = if mode == Mode::Mode3 { 4.0 } else { 2.0 };
+            assert!(
+                hi - lo <= spread_limit,
+                "{mode:?}: group-delay spread {:.3} samples exceeded {spread_limit}",
+                hi - lo
+            );
+        }
+    }
+
+    #[test]
+    fn group_delay_report_units_and_phase_wrap() {
+        // ms accounting: delay_ms = delay_samples / 16 at the 16 kHz
+        // PCM clock.
+        let r = measure_group_delay_default(Mode::Mode1, 1020.0);
+        assert!((r.delay_ms - r.delay_samples * 1000.0 / PCM_SAMPLE_CLOCK_HZ as f64).abs() < 1e-12);
+        assert_eq!(r.spacing_hz, 40.0);
+        assert_eq!(r.input_level_dbm0, -10.0);
+        // wrap_phase maps into (-pi, pi] and is idempotent there.
+        use core::f64::consts::{PI, TAU};
+        assert!((wrap_phase(PI + 0.5) - (0.5 - PI)).abs() < 1e-12);
+        assert!((wrap_phase(-PI - 0.5) - (PI - 0.5)).abs() < 1e-12);
+        assert!((wrap_phase(3.0 * TAU + 0.25) - 0.25).abs() < 1e-9);
+        assert_eq!(wrap_phase(PI), PI);
+        assert_eq!(wrap_phase(0.0), 0.0);
     }
 }
