@@ -1,16 +1,16 @@
 //! ITU-T G.722 SB-ADPCM decoder.
 //!
 //! Implements the receive path of clauses 4 and 5 of the staged
-//! ITU-T G.722 (09/2012) recommendation, using the bit-exact integer
+//! ITU-T G.722 (11/88) Recommendation, using the bit-exact integer
 //! computational details of clause 6.2.
 //!
 //! Layout:
 //!   * `LowerDecoderState` — lower sub-band ADPCM decoder
-//!     (blocks 2L/3L/4L/5L/6L; figures 21..25).
+//!     (BLOCKs 2L/3L/4L/5L/6L; Figures 21–25/G.722).
 //!   * `HigherDecoderState` — higher sub-band ADPCM decoder
-//!     (blocks 2H/3H/4H/5H; figures 28..30).
+//!     (BLOCKs 2H/3H/4H/5H; Figures 28–31/G.722).
 //!   * `Decoder` — pairs the two sub-bands with the 24-tap receive
-//!     QMF (figure 18 / clause 5.2.2).
+//!     QMF (Figure 18/G.722 / clause 5.2.2).
 
 use crate::predictor::{add, mul, sub, SubBandState};
 use crate::tables::{
