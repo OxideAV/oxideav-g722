@@ -329,6 +329,120 @@ pub fn measure_idle_noise_default(mode: Mode) -> IdleNoiseReport {
 }
 
 // -----------------------------------------------------------------------
+// Spectral idle-channel measurement (clauses 2.4.4 + 2.4.5)
+// -----------------------------------------------------------------------
+
+/// Returned by [`measure_idle_channel_spectrum`]: a frequency-resolved
+/// idle-channel report against the clause 2.4.4 band-limited
+/// noise-power limits and the clause 2.4.5 selective single-frequency
+/// limit.
+///
+/// The wideband [`measure_idle_noise`] RMS cannot check the
+/// *narrow-band* −66 dBm0 bound of clause 2.4.4 (its reading includes
+/// the 7–8 kHz sub-band-edge residue the receive audio part's
+/// reconstructing filter of clause 2.5.2 would remove) nor the
+/// "measured selectively" −70 dBm0 bound of clause 2.4.5. This report
+/// resolves both by measuring per-DFT-bin at the digital boundary:
+/// the 50 – 7000 Hz band power is exactly the clause 2.4.4 narrow-band
+/// window, and the per-bin peak is the clause 2.4.5 selective sweep.
+/// Frequencies above the 8 kHz digital Nyquist do not exist at this
+/// boundary, so the 50 Hz – 20 kHz wideband window of clause 2.4.4
+/// truncates to 50 Hz – 8 kHz here (everything the codec can emit).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct IdleChannelSpectrumReport {
+    /// Sample count of the measured steady-state window.
+    pub samples_measured: usize,
+    /// RMS (uniform-PCM units) in the 50 – 7000 Hz narrow band of
+    /// clause 2.4.4.
+    pub narrowband_rms: f64,
+    /// [`Self::narrowband_rms`] as dBm0.
+    pub narrowband_dbm0: f64,
+    /// RMS in the 50 Hz – 8 kHz band (the clause 2.4.4 wideband
+    /// window truncated at the digital Nyquist).
+    pub wideband_rms: f64,
+    /// [`Self::wideband_rms`] as dBm0.
+    pub wideband_dbm0: f64,
+    /// Centre frequency (Hz) of the strongest single-frequency
+    /// component at or above the first non-DC bin.
+    pub peak_frequency_hz: f64,
+    /// RMS of that strongest component.
+    pub peak_rms: f64,
+    /// [`Self::peak_rms`] as dBm0 — the clause 2.4.5 selective
+    /// reading.
+    pub peak_dbm0: f64,
+    /// RMS of the 8000 Hz (Nyquist) component, the frequency clause
+    /// 2.4.5 singles out ("in particular 8000 Hz, the sampling
+    /// frequency and its multiples").
+    pub nyquist_rms: f64,
+    /// Constant (DC) component of the steady-state output, in
+    /// uniform-PCM LSBs. DC is not a transmittable "frequency" (the
+    /// receive audio part is AC-coupled through its reconstructing
+    /// filter) so it is reported separately rather than counted
+    /// against the clause 2.4.5 limit.
+    pub dc_component: f64,
+    /// `true` when [`Self::narrowband_dbm0`] ≤
+    /// [`IDLE_NOISE_MAX_DBM0_NARROWBAND`] (−66 dBm0, clause 2.4.4).
+    pub meets_narrowband_limit: bool,
+    /// `true` when [`Self::wideband_dbm0`] ≤
+    /// [`IDLE_NOISE_MAX_DBM0_WIDEBAND`] (−60 dBm0, clause 2.4.4).
+    pub meets_wideband_limit: bool,
+    /// `true` when [`Self::peak_dbm0`] ≤
+    /// [`SINGLE_FREQUENCY_NOISE_MAX_DBM0`] (−70 dBm0, clause 2.4.5).
+    pub meets_single_frequency_limit: bool,
+}
+
+/// Drive a fresh encoder → decoder loop in `mode` with digital
+/// silence and return the frequency-resolved
+/// [`IdleChannelSpectrumReport`] over a 4096-sample (256 ms)
+/// steady-state window (64 warm-up samples dropped — twice the
+/// [`measure_idle_noise`] margin, so the QMF warm-up and scale-factor
+/// leak transient are fully excluded from the DFT record).
+///
+/// Clause 2.4 quotes its limits for Mode 1 ("These limits apply to
+/// operation in Mode 1", page 9); callers may still evaluate Modes 2
+/// and 3, which this implementation holds to the same limits.
+pub fn measure_idle_channel_spectrum(mode: Mode) -> IdleChannelSpectrumReport {
+    const SKIP: usize = 64;
+    const WINDOW: usize = 4096;
+    let mut enc = Encoder::new();
+    let mut dec = Decoder::new(mode);
+    let pcm_in = alloc::vec![0_i32; WINDOW + SKIP];
+    let octets = enc.encode(&pcm_in);
+    let out = dec.decode(&octets);
+    let w = &out[SKIP..SKIP + WINDOW];
+
+    let lo = spectrum::bin_at_or_above_hz(WINDOW, PCM_SAMPLE_CLOCK_HZ, IDLE_NOISE_BAND_LOW_HZ);
+    let hi_nb =
+        spectrum::bin_at_or_below_hz(WINDOW, PCM_SAMPLE_CLOCK_HZ, IDLE_NOISE_NARROWBAND_HIGH_HZ);
+    let nyquist_bin = WINDOW / 2;
+
+    let narrowband_rms = spectrum::band_rms(w, lo..=hi_nb);
+    let wideband_rms = spectrum::band_rms(w, lo..=nyquist_bin);
+    let (peak_bin, peak_rms) = spectrum::peak_bin(w, 1..=nyquist_bin);
+    let nyquist_rms = spectrum::dft_bin_rms(w, nyquist_bin);
+    let dc_component = spectrum::dft_bin_rms(w, 0);
+
+    let narrowband_dbm0 = uniform_pcm_rms_to_dbm0(narrowband_rms);
+    let wideband_dbm0 = uniform_pcm_rms_to_dbm0(wideband_rms);
+    let peak_dbm0 = uniform_pcm_rms_to_dbm0(peak_rms);
+    IdleChannelSpectrumReport {
+        samples_measured: WINDOW,
+        narrowband_rms,
+        narrowband_dbm0,
+        wideband_rms,
+        wideband_dbm0,
+        peak_frequency_hz: peak_bin as f64 * PCM_SAMPLE_CLOCK_HZ as f64 / WINDOW as f64,
+        peak_rms,
+        peak_dbm0,
+        nyquist_rms,
+        dc_component,
+        meets_narrowband_limit: narrowband_dbm0 <= IDLE_NOISE_MAX_DBM0_NARROWBAND,
+        meets_wideband_limit: wideband_dbm0 <= IDLE_NOISE_MAX_DBM0_WIDEBAND,
+        meets_single_frequency_limit: peak_dbm0 <= SINGLE_FREQUENCY_NOISE_MAX_DBM0,
+    }
+}
+
+// -----------------------------------------------------------------------
 // End-to-end tone-response measurement (clause 2.4.2 attenuation mask)
 // -----------------------------------------------------------------------
 
@@ -1026,5 +1140,89 @@ mod tests {
         assert_eq!(r.signal_rms_uniform_pcm, 0.0);
         assert_eq!(r.distortion_rms_uniform_pcm, 0.0);
         assert_eq!(r.ratio_db, f64::NEG_INFINITY);
+    }
+
+    // -------------------------------------------------------------------
+    // Frequency-resolved idle-channel conformance (clauses 2.4.4 + 2.4.5).
+    // -------------------------------------------------------------------
+
+    #[test]
+    fn idle_channel_meets_clause_2_4_4_narrowband_limit_all_modes() {
+        // The narrow-band (50 - 7000 Hz) -66 dBm0 bound of clause
+        // 2.4.4 (p. 9) was previously out of reach: the wideband RMS
+        // of measure_idle_noise cannot exclude the 7 - 8 kHz sub-band
+        // residue. The DFT-resolved band power can. Measured: the
+        // steady-state idle output is a pure DC pattern (see the
+        // dc-only anchor below), so the in-band noise power is zero
+        // to numerical precision -- far below every printed bound.
+        for mode in [Mode::Mode1, Mode::Mode2, Mode::Mode3] {
+            let r = measure_idle_channel_spectrum(mode);
+            assert!(
+                r.meets_narrowband_limit,
+                "{mode:?}: narrow-band idle noise {:.2} dBm0 exceeded -66 dBm0 ({r:?})",
+                r.narrowband_dbm0
+            );
+            assert!(
+                r.meets_wideband_limit,
+                "{mode:?}: wideband idle noise {:.2} dBm0 exceeded -60 dBm0 ({r:?})",
+                r.wideband_dbm0
+            );
+            assert_eq!(r.samples_measured, 4096);
+        }
+    }
+
+    #[test]
+    fn idle_channel_meets_clause_2_4_5_single_frequency_limit_all_modes() {
+        // Clause 2.4.5 (p. 11): "The level of any single frequency
+        // (in particular 8000 Hz, the sampling frequency and its
+        // multiples), measured selectively ... should not exceed
+        // -70 dBm0." The per-bin peak of the idle spectrum is that
+        // selective sweep across everything the digital boundary can
+        // carry (up to the 8 kHz Nyquist).
+        for mode in [Mode::Mode1, Mode::Mode2, Mode::Mode3] {
+            let r = measure_idle_channel_spectrum(mode);
+            assert!(
+                r.meets_single_frequency_limit,
+                "{mode:?}: selective idle peak {:.2} dBm0 at {:.1} Hz exceeded -70 dBm0",
+                r.peak_dbm0, r.peak_frequency_hz
+            );
+            // The spec singles out 8000 Hz; pin its bin explicitly.
+            assert!(
+                uniform_pcm_rms_to_dbm0(r.nyquist_rms) <= SINGLE_FREQUENCY_NOISE_MAX_DBM0,
+                "{mode:?}: 8000 Hz idle component {:.4} LSB rms exceeded -70 dBm0",
+                r.nyquist_rms
+            );
+        }
+    }
+
+    #[test]
+    fn idle_channel_steady_state_is_dc_only() {
+        // Sharper than any power bound: with digital silence in, the
+        // decoded steady state settles to a *constant* -- +1 LSB in
+        // Mode 1 (the Mode-1 INVQBL reconstruction of the steady
+        // silence codeword settles the sub-band pair at (r_L, r_H) =
+        // (1, 0), which the unity-DC-gain receive QMF carries through
+        // as +1) and exactly 0 in Modes 2 / 3. All idle energy is DC,
+        // which the receive audio part's reconstructing filter
+        // (clause 2.5.2) blocks -- the clause 2.4.4 / 2.4.5 margins
+        // are structural, not incidental.
+        for (mode, expected) in [(Mode::Mode1, 1), (Mode::Mode2, 0), (Mode::Mode3, 0)] {
+            let mut enc = Encoder::new();
+            let mut dec = Decoder::new(mode);
+            let pcm_in = alloc::vec![0_i32; 4160];
+            let out = dec.decode(&enc.encode(&pcm_in));
+            let w = &out[64..];
+            assert!(
+                w.iter().all(|&v| v == expected),
+                "{mode:?}: idle steady state is not the constant {expected}"
+            );
+            // And the report's DC accounting agrees.
+            let r = measure_idle_channel_spectrum(mode);
+            assert!(
+                (r.dc_component - expected as f64).abs() < 1e-6,
+                "{mode:?}: DC component {:.6} != {expected}",
+                r.dc_component
+            );
+        }
     }
 }
