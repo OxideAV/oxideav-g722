@@ -56,6 +56,7 @@ pub mod group_delay_distortion;
 pub mod reconstructing_filter;
 pub mod signal_to_distortion;
 pub mod signal_to_distortion_frequency;
+pub mod spectrum;
 
 // -----------------------------------------------------------------------
 // Clock + sample-rate accounting (clause 1.6, page 8)
