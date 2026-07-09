@@ -222,7 +222,7 @@ fn encoder_chunked_encoding_matches_one_shot() {
     // (including empty and single-sample chunks) yields the identical
     // octet sequence.
     let mut rng = Rng::new(0xC407_0001);
-    let pcm: Vec<i32> = (0..4097).map(|_| (rng.next_i32() >> 18)).collect();
+    let pcm: Vec<i32> = (0..4097).map(|_| rng.next_i32() >> 18).collect();
 
     let mut whole_enc = Encoder::new();
     let whole = whole_enc.encode(&pcm);
@@ -255,7 +255,7 @@ fn encoder_reset_returns_to_the_fresh_stream() {
     // after a reset is bit-identical to a fresh encoder's.
     let mut rng = Rng::new(0x0BAD_F00D);
     let noise: Vec<i32> = (0..2048).map(|_| rng.next_i32()).collect();
-    let probe: Vec<i32> = (0..2048).map(|_| (rng.next_i32() >> 17)).collect();
+    let probe: Vec<i32> = (0..2048).map(|_| rng.next_i32() >> 17).collect();
 
     let mut abused = Encoder::new();
     let _ = abused.encode(&noise);
