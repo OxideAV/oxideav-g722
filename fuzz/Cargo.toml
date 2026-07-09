@@ -1,0 +1,85 @@
+[package]
+name = "oxideav-g722-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+[package.metadata]
+cargo-fuzz = true
+
+# G.722 has no framing layer: every u8 is a syntactically valid
+# multiplexer octet (clause 1.4.4 of the staged Recommendation), so
+# there is no parse-reject path to fuzz. The risk shapes are instead
+# (a) arithmetic totality of the two ADPCM loops + QMF banks under
+# inputs beyond the documented 14-bit PCM / 15-bit sub-band domains,
+# (b) state-machine integrity across mid-stream mode switches and
+# resets (clause 1.3 permits switching "in any octet"), and (c) the
+# wire-side auxiliary-data substitution devices of Figure 1/G.722.
+# Each target asserts the spec-side output invariants (LIMIT /
+# Table 9 saturation ranges, octet-count accounting, aux round-trip
+# fidelity), not merely the absence of panics.
+#
+# Four targets cover the four risk shapes:
+#
+# - **`decode_stream`**: arbitrary octet streams through the decoder
+#   with fuzz-driven mid-stream `set_mode` / `reset` interleaving;
+#   asserts every output sample stays inside the Table 9 receive
+#   range and the two-samples-per-octet accounting holds.
+# - **`encode_roundtrip`**: arbitrary bytes reinterpreted as
+#   full-range i32 PCM, encoded under a fuzz-chosen chunking (the
+#   odd-length `pending` path), cross-checked against a one-shot
+#   encode of the same samples (chunking must be invisible on the
+#   wire), then decoded in all three modes with the output range
+#   asserted.
+# - **`subband_bypass`**: the Appendix-II Configuration-1/2
+#   QMF-bypass entry points (`encode_subband_pair` /
+#   `decode_subband_pair`) driven with full-range i32 sub-band
+#   samples and raw codeword bytes; asserts the §§ 6.2.1.6 /
+#   6.2.2.5 LIMIT ranges.
+# - **`aux_channel`**: the clause 1.3 / Figure 1/G.722 data
+#   insertion + extraction devices — fuzz-chosen mode, payload bits
+#   and carrier octets; asserts the inserted bits are recovered
+#   exactly, the audio bits above the substituted LSBs are left
+#   untouched, and the drained/padded accounting is consistent.
+
+[dependencies]
+libfuzzer-sys = "0.4"
+
+[dependencies.oxideav-g722]
+path = ".."
+
+# Prevent this fuzz package from being pulled into the umbrella
+# workspace at `crates/*` glob-resolve time.
+[workspace]
+members = ["."]
+
+[profile.release]
+debug = 1
+
+# ------------------------------------------------------------------
+# Fuzz targets.
+# ------------------------------------------------------------------
+
+[[bin]]
+name = "decode_stream"
+path = "fuzz_targets/decode_stream.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "encode_roundtrip"
+path = "fuzz_targets/encode_roundtrip.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "subband_bypass"
+path = "fuzz_targets/subband_bypass.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "aux_channel"
+path = "fuzz_targets/aux_channel.rs"
+test = false
+doc = false
