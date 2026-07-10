@@ -4,7 +4,55 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Three bit-exactness bugs exposed by the ITU-T G.191 G.722
+  conformance corpus** (round 405; all three affected every mode on
+  every octet once signal was present):
+  1. **Table 14 QQ4 addressing off by one.** The printed address
+     column is 1-based row numbering, but Table 17's `IL4` output is
+     0-based — `QQ4(IL4)` maps to `row = IL4 + 1` exactly like the
+     adjacent `WL` column. The old reading shifted every 4-bit
+     inverse-quantizer magnitude one row low *and dropped the top
+     output 2557 entirely*, biasing the INVQAL predictor-update
+     difference `DLT` on every octet (INVQAL feeds adaptation in all
+     three modes, and Mode 3's INVQBL directly).
+  2. **FILTEP pole-section delay-line timing.** The reconstructed
+     signal latch routed `RLT` through an extra delay slot, so the
+     pole predictor saw `r(n−2)/r(n−3)` instead of the clause 6.2.1.4
+     `RLT1 = r(n−1)` / `RLT2 = r(n−2)`.
+  3. **UPPOL1 stability window input.** The `|APL1| ≤ 15360 − APL2`
+     bound (eq 3-36) was computed against the *delayed* `AL2`; the
+     UPPOL1 sub-block's named input is the freshly updated `APL2`.
+
+  With the fixes the codec is bit-exact against the full corpus:
+  encoder 48 768 / 48 768 octets, decoder 97 536 / 97 536 samples in
+  each of Modes 1 / 2 / 3. The spec-pseudo-code golden vectors,
+  Appendix-II harness anchors and operational-measurement gates were
+  re-derived accordingly (the idle channel now *hunts* within ±3 LSB
+  of digital silence instead of freezing on a constant — the corpus
+  corroborates the drift, which follows from `QQ4(1) = 150` making the
+  silence code-word's `DLT = +1`).
+
 ### Added
+
+- **ITU-T G.191 conformance corpus wiring** (`tests/itu_conformance.rs`):
+  bit-exact encoder and per-mode decoder legs against
+  `docs/audio/g722/conformance/` (graceful skip when `docs/` is absent),
+  plus committed ~68 KiB prefix excerpts (`tests/data/`) that keep a
+  genuine corpus prefix bit-exact in standalone CI, an
+  encode→decode chain leg, container-framing assertions
+  (word-per-octet `.cod` high bytes), fixture-drift guards, and a
+  pinned documentation of the corpus's `codsp.cod` anomaly (it does
+  *not* carry the same codewords as `codspw.cod`).
+- **16-bit PCM entry points**: `Encoder::encode_pcm16` /
+  `encode_pcm16_pair` / `encode_pcm16_into` and
+  `Decoder::decode_pcm16` / `decode_octet_pcm16` / `decode_pcm16_into`.
+  Full-scale 16-bit uniform PCM in/out with the QMF normalisation
+  rescaled by one bit (clause 5.2 Note 2 freedom) — the convention the
+  conformance corpus is bit-exact under, and *not* equivalent to
+  shifting samples at the API boundary (the extra bit participates in
+  all 24 filter products).
 
 - **Round-401 operational clause-2 conformance: the complete measurable
   set.** New `transmission::spectrum` module (exact least-squares
