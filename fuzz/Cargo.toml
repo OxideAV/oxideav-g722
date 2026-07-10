@@ -19,7 +19,7 @@ cargo-fuzz = true
 # Table 9 saturation ranges, octet-count accounting, aux round-trip
 # fidelity), not merely the absence of panics.
 #
-# Four targets cover the four risk shapes:
+# Five targets cover the risk shapes:
 #
 # - **`decode_stream`**: arbitrary octet streams through the decoder
 #   with fuzz-driven mid-stream `set_mode` / `reset` interleaving;
@@ -41,6 +41,10 @@ cargo-fuzz = true
 #   and carrier octets; asserts the inserted bits are recovered
 #   exactly, the audio bits above the substituted LSBs are left
 #   untouched, and the drained/padded accounting is consistent.
+# - **`pcm16_convention`**: the 16-bit-PCM (clause 5.2 Note 2
+#   rescaling) entry points — decode shadowing within one fine LSB of
+#   2x the Table 9 path on arbitrary octet streams, and wire-invisible
+#   odd chunking through the shared pending-sample buffer.
 
 [dependencies]
 libfuzzer-sys = "0.4"
@@ -81,5 +85,11 @@ doc = false
 [[bin]]
 name = "aux_channel"
 path = "fuzz_targets/aux_channel.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "pcm16_convention"
+path = "fuzz_targets/pcm16_convention.rs"
 test = false
 doc = false

@@ -53,6 +53,13 @@ All notable changes to this project will be documented in this file.
   conformance corpus is bit-exact under, and *not* equivalent to
   shifting samples at the API boundary (the extra bit participates in
   all 24 filter products).
+- **pcm16 hardening**: robustness totality tests for the new entry
+  points (arbitrary-octet decode totality + determinism per mode,
+  decode shadowing within one fine LSB of 2× the Table 9 path,
+  full-`i16`-domain encode with rail-polarity sanity, wire-invisible
+  odd chunking, reset-to-fresh equality) and a fifth cargo-fuzz target
+  `pcm16_convention` asserting the shadowing and chunk-transparency
+  invariants under fuzz-chosen streams.
 
 - **Round-401 operational clause-2 conformance: the complete measurable
   set.** New `transmission::spectrum` module (exact least-squares
