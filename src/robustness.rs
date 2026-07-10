@@ -266,3 +266,134 @@ fn encoder_reset_returns_to_the_fresh_stream() {
     let fresh_stream = fresh.encode(&probe);
     assert_eq!(after_reset, fresh_stream);
 }
+
+// ---------------------------------------------------------------------
+// 16-bit PCM convention entry points (encode_pcm16 / decode_pcm16).
+// ---------------------------------------------------------------------
+
+/// The 16-bit-convention decoder output saturates to the full 16-bit
+/// two's-complement window (the `WD >> 11` output stage of clause
+/// 5.2.2 under the Note 2 rescaling; see `Decoder::decode_octet_pcm16`).
+const OUT_RANGE_PCM16: core::ops::RangeInclusive<i16> = i16::MIN..=i16::MAX;
+
+#[test]
+fn decoder_pcm16_is_total_over_arbitrary_octet_streams() {
+    // Same totality contract as the 15-bit path: every u8 is a valid
+    // multiplexer octet, so decode_pcm16 must be total and its output
+    // confined to the (trivially full, but pinned) i16 window, with
+    // deterministic replay.
+    for mode in ALL_MODES {
+        let mut rng = Rng::new(0x1600_D1CE);
+        let stream: Vec<u8> = (0..8192).map(|_| rng.next_u8()).collect();
+        let mut dec_a = Decoder::new(mode);
+        let mut dec_b = Decoder::new(mode);
+        let out_a = dec_a.decode_pcm16(&stream);
+        let out_b = dec_b.decode_pcm16(&stream);
+        assert_eq!(out_a, out_b, "{mode:?}: decode_pcm16 not deterministic");
+        assert_eq!(out_a.len(), stream.len() * 2);
+        for &s in &out_a {
+            assert!(OUT_RANGE_PCM16.contains(&s));
+        }
+    }
+}
+
+#[test]
+fn pcm16_decode_shares_the_subband_state_machine_with_the_native_path() {
+    // The pcm16 output stage must be a pure output-domain rescaling of
+    // the same sub-band decode: on the same arbitrary octet stream the
+    // two paths' outputs stay within one fine LSB of the 2x relation
+    // (the extra bit is true accumulator content) at every sample, in
+    // every mode.
+    for mode in ALL_MODES {
+        let mut rng = Rng::new(0xD0C1_6B17_u64 ^ 0x5EED);
+        let stream: Vec<u8> = (0..4096).map(|_| rng.next_u8()).collect();
+        let mut d15 = Decoder::new(mode);
+        let mut d16 = Decoder::new(mode);
+        let coarse = d15.decode(&stream);
+        let fine = d16.decode_pcm16(&stream);
+        for (i, (c, f)) in coarse.iter().zip(fine.iter()).enumerate() {
+            let twice = *c * 2;
+            let diff = i32::from(*f) - twice;
+            assert!(
+                (-1..=1).contains(&diff),
+                "{mode:?} sample {i}: fine {f} vs 2x coarse {twice}"
+            );
+        }
+    }
+}
+
+#[test]
+fn encoder_pcm16_is_total_over_full_range_pcm() {
+    // encode_pcm16 must be total over the entire i16 domain (its
+    // documented input domain — no out-of-domain values exist) and
+    // emit syntactically valid octets whose decode stays in range.
+    let mut rng = Rng::new(0xE16C_0DE5);
+    let pcm: Vec<i16> = (0..8192).map(|_| (rng.next_u64() >> 48) as i16).collect();
+    let mut enc = Encoder::new();
+    let octets = enc.encode_pcm16(&pcm);
+    assert_eq!(octets.len(), pcm.len() / 2);
+    let mut dec = Decoder::new(Mode::Mode1);
+    for &s in &dec.decode_pcm16(&octets) {
+        assert!(OUT_RANGE_PCM16.contains(&s));
+    }
+    // Extremes: constant rails must not wrap anywhere in the loop.
+    let mut enc = Encoder::new();
+    let rails: Vec<i16> = core::iter::repeat_n(i16::MIN, 256)
+        .chain(core::iter::repeat_n(i16::MAX, 256))
+        .collect();
+    let octets = enc.encode_pcm16(&rails);
+    let mut dec = Decoder::new(Mode::Mode1);
+    let out = dec.decode_pcm16(&octets);
+    // The decoded rail regions must land near the rails with correct
+    // polarity once the adaptive loop has charged (structural sanity
+    // that no sign flip / wraparound occurred in the widened path).
+    let head = &out[128..240];
+    let tail = &out[320..];
+    assert!(head.iter().all(|&v| v < 0), "negative rail lost polarity");
+    assert!(
+        tail.iter().any(|&v| v > 8192),
+        "positive rail never tracked"
+    );
+}
+
+#[test]
+fn encoder_pcm16_chunking_is_stream_transparent() {
+    // Odd-length chunked pcm16 feeding equals one-shot encoding: the
+    // pending-sample buffer is shared with the 15-bit path and must be
+    // convention-transparent within a single-convention stream.
+    let mut rng = Rng::new(0xC41F_EED5);
+    let pcm: Vec<i16> = (0..4097).map(|_| (rng.next_u64() >> 48) as i16).collect();
+
+    let mut whole_enc = Encoder::new();
+    let whole = whole_enc.encode_pcm16(&pcm);
+
+    let mut chunked_enc = Encoder::new();
+    let mut chunked = Vec::new();
+    let mut rest = pcm.as_slice();
+    let mut n = 1;
+    while !rest.is_empty() {
+        let take = n.min(rest.len());
+        chunked_enc.encode_pcm16_into(&rest[..take], &mut chunked);
+        rest = &rest[take..];
+        n = (n * 3 + 1) % 17 + 1;
+    }
+    assert_eq!(chunked, whole);
+    assert_eq!(chunked_enc.pending_samples(), 1);
+    assert_eq!(whole_enc.pending_samples(), 1);
+}
+
+#[test]
+fn encoder_pcm16_reset_returns_to_the_fresh_stream() {
+    let mut rng = Rng::new(0x0BAD_F00D);
+    let noise: Vec<i16> = (0..2048).map(|_| (rng.next_u64() >> 48) as i16).collect();
+    let probe: Vec<i16> = (0..2048).map(|_| (rng.next_u64() >> 50) as i16).collect();
+
+    let mut abused = Encoder::new();
+    let _ = abused.encode_pcm16(&noise);
+    abused.reset();
+    let after_reset = abused.encode_pcm16(&probe);
+
+    let mut fresh = Encoder::new();
+    let fresh_stream = fresh.encode_pcm16(&probe);
+    assert_eq!(after_reset, fresh_stream);
+}
