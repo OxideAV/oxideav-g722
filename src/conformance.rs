@@ -11,15 +11,27 @@
 //! clauses 5.2.1 / 5.2.2).
 //!
 //! Every golden integer below was produced by stepping the spec
-//! pseudo-code by hand (see the per-test derivations) and confirmed to
-//! be exactly reproduced by the production decode / encode paths.
-//! Because the codec is fully deterministic integer arithmetic, an exact
-//! match against these vectors is a true conformance check on the whole
-//! pipeline — not the loose silence / energy envelope the older tests
-//! assert. The vectors come only from the
-//! Recommendation's printed pseudo-code and the tables of
-//! [`crate::tables`] (themselves transcribed from the printed
+//! pseudo-code (the single-step reset anchors by hand; the multi-octet
+//! streams through an independent step-by-step evaluation of the same
+//! pseudo-code) and confirmed to be exactly reproduced by the
+//! production decode / encode paths. Because the codec is fully
+//! deterministic integer arithmetic, an exact match against these
+//! vectors is a true conformance check on the whole pipeline — not the
+//! loose silence / energy envelope the older tests assert. The vectors
+//! come only from the Recommendation's printed pseudo-code and the
+//! tables of [`crate::tables`] (themselves transcribed from the printed
 //! normative tables of `docs/audio/g722/T-REC-G.722-198811-S.pdf`).
+//!
+//! The multi-octet golden streams were re-derived in r405 when the ITU
+//! conformance corpus (`tests/itu_conformance.rs`) exposed three real
+//! divergences in the earlier reading of the pseudo-code — the QQ4
+//! addressing (Table 14 rows are `IL4 = row − 1`, not literal 1-based
+//! addresses), the FILTEP delay-line timing (RLT1 is the value
+//! reconstructed one sample earlier, not two), and UPPOL1's stability
+//! window (computed against the freshly updated APL2, not the delayed
+//! AL2). The pseudo-code evaluation that produced the values below is
+//! bit-exact against the full corpus (48 768 / 48 768 encoder octets,
+//! 3 × 97 536 / 97 536 decoder samples).
 
 #![cfg(test)]
 
@@ -53,8 +65,8 @@ const STIMULUS_OCTETS: [u8; 16] = [
 /// [`first_octet_inverse_quantizer_outputs_match_hand_derivation`],
 /// `R_L = R_H = -1`, so the empty QMF delay line yields `(0, 0)`.
 const GOLDEN_MODE1: [i32; 32] = [
-    0, 0, -1, -1, 0, 0, -1, -1, 0, 0, 0, -2, -1, -4, 0, 3, -1, -17, -13, 3, 6, -20, -21, -16, 0, 2,
-    2, -6, -6, -16, 3, 35,
+    0, 0, -1, -1, 0, 0, -1, -1, 0, 0, 0, -2, -1, -3, 0, 3, -1, -15, -14, 0, 7, -20, -21, -15, 3, 2,
+    1, -7, -7, -14, 3, 33,
 ];
 
 /// Golden 16 kHz PCM output for [`STIMULUS_OCTETS`] decoded in **Mode 2**
@@ -63,8 +75,8 @@ const GOLDEN_MODE1: [i32; 32] = [
 /// 19/G.722 path). Differs from Mode 1 only where dropping the LSB
 /// changes the recovered DL.
 const GOLDEN_MODE2: [i32; 32] = [
-    0, 0, -1, -1, 0, 0, -1, -1, 0, 0, 0, -2, -1, -4, 0, 3, 0, -16, -12, 3, 6, -20, -21, -16, 0, 3,
-    3, -5, -6, -17, 5, 39,
+    0, 0, -1, -1, 0, 0, -1, -1, 0, 0, 0, -2, -1, -3, 0, 3, -1, -14, -13, 0, 6, -20, -21, -15, 4, 3,
+    2, -7, -7, -15, 4, 37,
 ];
 
 /// Golden 16 kHz PCM output for [`STIMULUS_OCTETS`] decoded in **Mode 3**
@@ -73,8 +85,8 @@ const GOLDEN_MODE2: [i32; 32] = [
 /// identical to the predictor-update INVQAL output per the INVQBL Mode-3
 /// note on p. 48 of the Recommendation).
 const GOLDEN_MODE3: [i32; 32] = [
-    0, 0, -1, -1, 0, 0, -1, -1, -1, 0, 0, -1, 0, -2, 0, 1, 0, -11, -8, 1, 2, -19, -15, -11, 2, 2,
-    0, -8, -3, -8, 2, 17,
+    0, 0, -1, -1, 0, 0, -1, -1, 0, 0, 0, -1, 0, -2, 1, 3, 0, -14, -12, 1, 6, -21, -22, -14, 5, 5,
+    3, -7, -6, -13, 3, 31,
 ];
 
 #[test]
@@ -167,8 +179,8 @@ fn first_octet_inverse_quantizer_outputs_match_hand_derivation() {
 /// local-decoder adaptation loop) and confirmed bit-exact against the
 /// production encoder.
 const GOLDEN_ENCODER_OCTETS: [u8; 32] = [
-    48, 133, 32, 132, 32, 132, 6, 144, 136, 148, 187, 187, 146, 169, 54, 54, 186, 42, 184, 178, 14,
-    151, 51, 55, 28, 170, 26, 53, 235, 13, 19, 191,
+    48, 133, 32, 132, 32, 132, 6, 144, 136, 148, 185, 188, 146, 170, 53, 55, 185, 42, 184, 179, 14,
+    151, 50, 56, 28, 170, 26, 53, 235, 13, 19, 189,
 ];
 
 /// Deterministic 64-sample PCM stimulus (a 14-bit-uniform pseudo-random

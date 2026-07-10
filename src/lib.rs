@@ -39,7 +39,12 @@
 //! hand from the printed normative tables; see `src/tables.rs` for
 //! the per-table provenance citation. No external source code, no
 //! external reference implementation, and no online resources were
-//! consulted during the rebuild.
+//! consulted during the rebuild. Both directions are additionally
+//! **bit-exact against the ITU-T G.191 G.722 conformance corpus**
+//! (black-box input↔output vectors staged under
+//! `docs/audio/g722/conformance/`; see `tests/itu_conformance.rs`),
+//! in all three modes, under the 16-bit PCM convention of
+//! [`Encoder::encode_pcm16`] / [`Decoder::decode_pcm16`].
 //!
 //! ## Usage
 //!

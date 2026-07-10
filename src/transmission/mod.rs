@@ -1163,23 +1163,40 @@ mod tests {
     #[test]
     fn codec_sd_mode_ordering_at_reference_frequency() {
         // The three modes decode 6 / 5 / 4 lower-sub-band bits
-        // (Table 1 page 3), so at a lower-band stimulus the S/D must
-        // strictly improve with each extra decoded bit, at every
-        // level. Measured gaps: Mode1−Mode2 ≥ 2.5 dB, Mode2−Mode3
-        // ≥ 10.9 dB across the level grid; gates at 2 / 8 dB.
+        // (Table 1 page 3), so at a lower-band stimulus the S/D
+        // improves with each extra decoded bit — but only where the
+        // adaptive scale factor keeps those bits meaningful. At the
+        // quiet end of the grid (−40 dBm0) the quantizer sits near its
+        // DETL floor and the extra Mode-1 bit adds almost nothing over
+        // Mode 2 (measured gap 0.04 dB), while from −20 dBm0 up the
+        // gaps open wide (measured Mode1−Mode2 ≥ 3.8 dB, Mode2−Mode3
+        // ≥ 5.4 dB). Gates: never inverted anywhere (≥ 0 / ≥ 1 dB),
+        // and ≥ 3 / ≥ 4.5 dB from −20 dBm0 up. (Figures re-measured on
+        // the ITU-conformance-bit-exact arithmetic; the previous wider
+        // all-level gates reflected the uncorrected QQ4 table.)
         let f = NOMINAL_REFERENCE_FREQUENCY_HZ as f64;
         for lvl in SD_LEVELS_DBM0 {
             let m1 = measure_signal_to_distortion_default(Mode::Mode1, f, lvl).ratio_db;
             let m2 = measure_signal_to_distortion_default(Mode::Mode2, f, lvl).ratio_db;
             let m3 = measure_signal_to_distortion_default(Mode::Mode3, f, lvl).ratio_db;
             assert!(
-                m1 - m2 >= 2.0,
-                "@ {lvl} dBm0: Mode1 {m1:.2} not ≥ 2 dB above Mode2 {m2:.2}"
+                m1 - m2 >= 0.0,
+                "@ {lvl} dBm0: Mode1 {m1:.2} fell below Mode2 {m2:.2}"
             );
             assert!(
-                m2 - m3 >= 8.0,
-                "@ {lvl} dBm0: Mode2 {m2:.2} not ≥ 8 dB above Mode3 {m3:.2}"
+                m2 - m3 >= 1.0,
+                "@ {lvl} dBm0: Mode2 {m2:.2} not ≥ 1 dB above Mode3 {m3:.2}"
             );
+            if lvl >= -20.0 {
+                assert!(
+                    m1 - m2 >= 3.0,
+                    "@ {lvl} dBm0: Mode1 {m1:.2} not ≥ 3 dB above Mode2 {m2:.2}"
+                );
+                assert!(
+                    m2 - m3 >= 4.5,
+                    "@ {lvl} dBm0: Mode2 {m2:.2} not ≥ 4.5 dB above Mode3 {m3:.2}"
+                );
+            }
         }
     }
 
@@ -1213,23 +1230,32 @@ mod tests {
 
     #[test]
     fn codec_sd_is_level_tracking_like_an_adaptive_quantizer() {
-        // The whole point of the clause 3.5 / 3.6 adaptive scale
-        // factors is that reconstruction quality stays roughly
-        // constant across a wide input-level range (the quantizer
-        // rescales rather than drowning quiet signals). Gate: the
-        // Mode-1 S/D spread across the −40 … 0 dBm0 grid stays
-        // within 12 dB (measured 9.8 dB), i.e. nowhere near the
-        // 40 dB spread a *fixed* quantizer would show over the same
-        // grid.
+        // The point of the clause 3.5 / 3.6 adaptive scale factors is
+        // that quiet signals are not simply drowned the way a *fixed*
+        // quantizer would drown them: dropping the stimulus by 40 dB
+        // must cost far less than 40 dB of S/D. Measured on the
+        // ITU-conformance-bit-exact arithmetic the Mode-1 grid runs
+        // 24.8 dB @ −40 dBm0 up to 47.4 dB @ 0 dBm0 — a 22.5 dB spread
+        // (the corrected QQ4 / predictor timing sharpened the loud end
+        // far more than the DETL-floor-bound quiet end, so the spread
+        // widened versus the pre-r405 measurement). Gates: ≥ 23 dB S/D
+        // at *every* level (the quiet floor is the adaptive win) and
+        // spread ≤ 25 dB, still well under the fixed-quantizer 40 dB.
         let f = NOMINAL_REFERENCE_FREQUENCY_HZ as f64;
         let sds: alloc::vec::Vec<f64> = SD_LEVELS_DBM0
             .iter()
             .map(|&lvl| measure_signal_to_distortion_default(Mode::Mode1, f, lvl).ratio_db)
             .collect();
+        for (lvl, sd) in SD_LEVELS_DBM0.iter().zip(&sds) {
+            assert!(
+                *sd >= 23.0,
+                "Mode 1 S/D {sd:.2} dB @ {lvl} dBm0 fell under the 23 dB adaptive floor"
+            );
+        }
         let spread = sds.iter().cloned().fold(f64::MIN, f64::max)
             - sds.iter().cloned().fold(f64::MAX, f64::min);
         assert!(
-            spread <= 12.0,
+            spread <= 25.0,
             "Mode 1 S/D spread {spread:.2} dB across −40…0 dBm0 (grid {sds:?})"
         );
     }
@@ -1331,31 +1357,37 @@ mod tests {
     }
 
     #[test]
-    fn idle_channel_steady_state_is_dc_only() {
+    fn idle_channel_steady_state_hugs_the_lsb_floor() {
         // Sharper than any power bound: with digital silence in, the
-        // decoded steady state settles to a *constant* -- +1 LSB in
-        // Mode 1 (the Mode-1 INVQBL reconstruction of the steady
-        // silence codeword settles the sub-band pair at (r_L, r_H) =
-        // (1, 0), which the unity-DC-gain receive QMF carries through
-        // as +1) and exactly 0 in Modes 2 / 3. All idle energy is DC,
-        // which the receive audio part's reconstructing filter
-        // (clause 2.5.2) blocks -- the clause 2.4.4 / 2.4.5 margins
-        // are structural, not incidental.
-        for (mode, expected) in [(Mode::Mode1, 1), (Mode::Mode2, 0), (Mode::Mode3, 0)] {
+        // decoded output never leaves the deepest LSB floor. It is
+        // *not* a frozen constant — the silence codeword's INVQAL
+        // reconstruction is DLT = +1 (QQ4(1) = 150 at the DETL floor),
+        // so the transmit-side predictor slowly charges and the
+        // codeword hunts around the idle steady state (the ITU
+        // conformance corpus corroborates this: its zero lead-in
+        // decodes to a small non-constant ramp, and an earlier QQ4
+        // transcription that froze the idle output at a constant was
+        // disproved by that corpus). The hunting stays within ±3
+        // output LSBs with a sub-LSB DC mean in every mode, which the
+        // receive audio part's reconstructing filter (clause 2.5.2)
+        // and the clause 2.4.4 / 2.4.5 margins comfortably absorb
+        // (idle spectrum peak measured ≤ −84 dBm0).
+        for (mode, bound) in [(Mode::Mode1, 2), (Mode::Mode2, 3), (Mode::Mode3, 3)] {
             let mut enc = Encoder::new();
             let mut dec = Decoder::new(mode);
             let pcm_in = alloc::vec![0_i32; 4160];
             let out = dec.decode(&enc.encode(&pcm_in));
             let w = &out[64..];
             assert!(
-                w.iter().all(|&v| v == expected),
-                "{mode:?}: idle steady state is not the constant {expected}"
+                w.iter().all(|&v| v.abs() <= bound),
+                "{mode:?}: idle output left the ±{bound} LSB floor"
             );
-            // And the report's DC accounting agrees.
+            // And the report's DC accounting agrees: the mean idle
+            // output is under one LSB in magnitude.
             let r = measure_idle_channel_spectrum(mode);
             assert!(
-                (r.dc_component - expected as f64).abs() < 1e-6,
-                "{mode:?}: DC component {:.6} != {expected}",
+                r.dc_component.abs() < 1.0,
+                "{mode:?}: idle DC component {:.6} reached a full LSB",
                 r.dc_component
             );
         }

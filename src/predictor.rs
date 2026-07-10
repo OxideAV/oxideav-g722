@@ -207,7 +207,15 @@ impl SubBandState {
     }
 
     /// Update a_L1 per eq 3-29.
-    pub(crate) fn update_pole_coeff_1(&self) -> i32 {
+    ///
+    /// `apl2` is the **freshly updated** second pole coefficient from
+    /// [`SubBandState::update_pole_coeff_2`]: the UPPOL1 sub-block
+    /// (clause 6.2.1.4, p. 47) names its input `APL2` — the UPPOL2
+    /// *output* of the same sampling period, not the delayed `AL2` —
+    /// so the eq 3-36 stability window must be computed against the
+    /// new value. (Confirmed bit-exactly by the ITU conformance
+    /// corpus; using the delayed `AL2` here eventually drifts.)
+    pub(crate) fn update_pole_coeff_1(&self, apl2: i32) -> i32 {
         let sg0 = self.plt[0] >> 15;
         let sg1 = self.plt[1] >> 15;
         // 3·2^-8 · p_A where p_A = sgn2(p_Lt(n)) · sgn2(p_Lt(n-1)).
@@ -216,7 +224,7 @@ impl SubBandState {
         let wd2 = mul(self.al1, 32640);
         let mut apl1 = add(wd1, wd2);
         // Stability constraint eq 3-36: |a_L1| ≤ 1 − 2^-4 − a_L2.
-        let wd3 = sub(15360, self.al2);
+        let wd3 = sub(15360, apl2);
         if apl1 > wd3 {
             apl1 = wd3;
         }
@@ -269,6 +277,24 @@ impl SubBandState {
         self.dlt.copy_within(1..6, 2);
         self.dlt[1] = dlt;
         self.dlt[0] = dlt;
+    }
+
+    /// Latch the current reconstructed signal r_Lt(n) so that on the
+    /// next sample `rlt[1]` reads as RLT1 = r_Lt(n-1) and `rlt[2]` as
+    /// RLT2 = r_Lt(n-2) — the FILTEP inputs (clause 6.2.1.4, p. 47).
+    ///
+    /// The DELAYA chain of Figure (BLOCK 4L) holds exactly two delay
+    /// taps between RECONS and FILTEP: the value reconstructed *this*
+    /// period is already RLT1 at the next period's prediction. (An
+    /// earlier revision routed the new value through a third slot so
+    /// FILTEP effectively saw r_Lt(n-2)/r_Lt(n-3) — one octet late; the
+    /// ITU conformance corpus exposes that as a divergence within the
+    /// first 40 octets.) `rlt[0]` mirrors the current value only for
+    /// state snapshots.
+    pub(crate) fn shift_rlt(&mut self, rlt: i32) {
+        self.rlt[2] = self.rlt[1];
+        self.rlt[1] = rlt;
+        self.rlt[0] = rlt;
     }
 
     /// Capture the full adaptive predictor + scale-factor state.

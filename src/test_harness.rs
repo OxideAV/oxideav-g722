@@ -1608,71 +1608,102 @@ mod tests {
     /// Table II-4/G.722 lower-LSB sub-sequence boundary (sample 256,
     /// where the 5-bit LSB pattern switches from constant 31 to the
     /// alternating 31 / 30 sub-sequence), so the lower-band predictor
-    /// and scale factor genuinely adapt across it — the wire word swings
-    /// between -2 and -4 rather than sitting on the suppressed-codeword
-    /// floor.
+    /// and scale factor genuinely adapt across it — the wire word walks
+    /// down through -2 / -4 / -6 ... as the predictor charges rather
+    /// than sitting on the suppressed-codeword floor.
     const GOLDEN_RLHASH_MODE1: [i16; 512] = [
-        -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2,
-        -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2,
-        -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2,
-        -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2,
-        -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2,
-        -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2,
-        -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2,
-        -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2,
-        -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2,
-        -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2,
-        -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2,
-        -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -4, -4, -2,
-        -4, -4, -2, -4, -4, -2, -4, -4, -2, -4, -4, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2,
-        -2, -2, -2, -2, -2, -4, -2, -4, -4, -2, -4, -4, -2, -4, -4, -2, -4, -4, -2, -4, -4, -2, -2,
-        -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -4, -4, -2, -4, -4, -2, -4, -4, -2,
-        -4, -4, -2, -4, -4, -2, -4, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2,
-        -2, -4, -4, -2, -4, -4, -2, -4, -4, -2, -4, -4, -2, -4, -4, -2, -2, -2, -2, -2, -2, -2, -2,
-        -2, -2, -2, -2, -2, -2, -2, -2, -2, -4, -2, -4, -4, -2, -4, -4, -2, -4, -4, -2, -4, -4, -2,
-        -4, -4, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -4, -4, -2, -4, -4,
-        -2, -4, -4, -2, -4, -4, -2, -4, -4, -2, -4, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2,
-        -2, -2, -2, -2, -2, -4, -4, -2, -4, -4, -2, -4, -4, -2, -4, -4, -2, -4, -4, -2, -2, -2, -2,
-        -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -4, -2, -4, -4, -2, -4, -4, -2, -4, -4,
-        -2, -4, -4, -2, -4, -4,
+        -2, -2, -2, -2, -2, -2, -2, -4, -2, -4, -4, -2, -6, -6, -2, -6, -6, -2, -6, -6, -2, -6, -6,
+        -2, -6, -6, -2, -6, -6, -2, -6, -6, -2, -6, -6, -2, -6, -6, -2, -6, -6, -2, -6, -6, -2, -6,
+        -6, -2, -6, -6, -2, -6, -6, -2, -6, -6, -2, -6, -6, -2, -6, -6, -2, -6, -6, -2, -6, -6, -2,
+        -6, -6, -2, -6, -4, -2, -6, -4, -2, -6, -4, -2, -6, -4, 0, -8, -6, 2, -6, -6, 2, -6, -6, 2,
+        -6, -6, 2, -6, -6, 2, -6, -6, 2, -6, -6, 2, -6, -6, 2, -6, -6, 2, -6, -6, 2, -6, -6, 2, -6,
+        -6, 2, -6, -6, 2, -6, -6, 2, -6, -8, 2, -6, -8, 2, -6, -10, 4, -10, -10, 6, -10, -10, 6,
+        -10, -10, 6, -10, -10, 6, -10, -10, 6, -10, -10, 6, -8, -12, 8, -10, -12, 10, -10, -14, 10,
+        -8, -14, 8, -8, -12, 8, -10, -12, 10, -10, -12, 10, -8, -14, 8, -8, -12, 8, -8, -12, 8, -8,
+        -14, 10, -10, -12, 10, -10, -12, 10, -10, -12, 10, -10, -12, 10, -10, -12, 10, -10, -12,
+        10, -10, -14, 12, -8, -16, 12, -6, -16, 12, -6, -16, 12, -8, -16, 14, -8, -18, 14, -6, -18,
+        12, -6, -18, 12, -6, -18, 12, -6, -18, 12, -6, -18, 12, -6, -18, 14, -6, -18, 14, -6, -18,
+        14, -6, -18, 14, -8, -16, 14, -10, -16, 16, -10, -18, 18, -10, -20, 18, -8, -20, 18, -8,
+        -20, 18, -8, -20, 18, -8, -20, 18, -10, -22, 18, -10, -22, 18, -10, -22, 18, -10, -22, 18,
+        -10, -22, 18, -8, -20, 18, -8, -20, 18, -8, -20, 18, -8, -20, 18, -8, -20, 18, -8, -22, 18,
+        -12, -20, 18, -14, -18, 20, -16, -20, 22, -16, -20, 22, -16, -20, 22, -14, -18, 22, -14,
+        -18, 22, -14, -18, 22, -14, -18, 22, -14, -18, 22, -16, -20, 22, -16, -20, 22, -16, -18,
+        20, -18, -18, 22, -18, -18, 22, -20, -14, 22, -18, -14, 22, -18, -14, 24, -18, -16, 24,
+        -18, -16, 24, -18, -18, 26, -22, -20, 28, -24, -22, 30, -26, -20, 30, -28, -18, 30, -30,
+        -18, 32, -30, -16, 32, -30, -16, 34, -32, -16, 36, -34, -16, 38, -34, -16, 38, -34, -18,
+        38, -36, -18, 38, -38, -16, 36, -36, -18, 38, -38, -16, 36, -36, -18, 38, -36, -14, 36,
+        -34, -16, 38, -36, -14, 36, -34, -16, 38, -36, -14, 36, -36, -18, 38, -38, -16, 36, -36,
+        -16, 36, -36, -16, 36, -36, -16, 36, -36, -14, 36, -34, -14, 36, -34, -14, 36, -34, -14,
+        36, -34, -14, 36, -36, -12, 34, -38, -12, 34, -40, -10, 34, -42, -10, 36, -44, -10, 38,
+        -46, -8, 36, -42, -8, 38, -44, -6, 36, -42, -6, 36, -42, -6, 36, -42, -6, 36, -42, -8, 36,
+        -44, -8, 36, -44, -8, 36, -44, -8, 36, -44, -8, 36, -44, -8,
     ];
 
     /// Golden RL# wire words for the first 512 `I#` payload samples,
     /// Mode 2 (5-bit lower sub-band — the LSB of the lower-band codeword
     /// is auxiliary data and discarded before inverse quantization).
-    /// Distinct from Mode 1: dropping that LSB flattens the recovered DL
-    /// to the steady wire word -2 across this window.
+    /// Distinct from Mode 1 once the LSB carries signal: dropping it
+    /// changes the recovered DL along the adaptation walk.
     const GOLDEN_RLHASH_MODE2: [i16; 512] = [
-        -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2,
-        -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2,
-        -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2,
-        -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2,
-        -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2,
-        -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2,
-        -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2,
-        -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2,
-        -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2,
-        -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2,
-        -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2,
-        -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2,
-        -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2,
-        -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2,
-        -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2,
-        -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2,
-        -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2,
-        -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2,
-        -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2,
-        -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2,
-        -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2,
-        -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2,
-        -2, -2, -2, -2, -2, -2,
+        -2, -2, -2, -2, -2, -2, -2, -4, -2, -4, -4, -2, -6, -6, -2, -6, -6, -2, -6, -6, -2, -6, -6,
+        -2, -6, -6, -2, -6, -6, -2, -6, -6, -2, -6, -6, -2, -6, -6, -2, -6, -6, -2, -6, -6, -2, -6,
+        -6, -2, -6, -6, -2, -6, -6, -2, -6, -6, -2, -6, -6, -2, -6, -6, -2, -6, -6, -2, -6, -6, -2,
+        -6, -6, -2, -6, -4, -2, -6, -4, -2, -6, -4, -2, -6, -4, 0, -8, -6, 2, -6, -6, 2, -6, -6, 2,
+        -6, -6, 2, -6, -6, 2, -6, -6, 2, -6, -6, 2, -6, -6, 2, -6, -6, 2, -6, -6, 2, -6, -6, 2, -6,
+        -6, 2, -6, -6, 2, -6, -6, 2, -6, -8, 2, -6, -8, 2, -6, -10, 4, -10, -10, 6, -10, -10, 6,
+        -10, -10, 6, -10, -10, 6, -10, -10, 6, -10, -10, 6, -8, -12, 8, -10, -12, 10, -10, -14, 10,
+        -8, -14, 8, -8, -12, 8, -10, -12, 10, -10, -12, 10, -8, -14, 8, -8, -12, 8, -8, -12, 8, -8,
+        -14, 10, -10, -12, 10, -10, -12, 10, -10, -12, 10, -10, -12, 10, -10, -12, 10, -10, -12,
+        10, -10, -14, 12, -8, -16, 12, -6, -16, 12, -6, -16, 12, -8, -16, 14, -8, -18, 14, -6, -18,
+        12, -6, -18, 12, -6, -18, 12, -6, -18, 12, -6, -18, 12, -6, -18, 14, -6, -18, 14, -6, -18,
+        14, -6, -18, 14, -8, -16, 14, -10, -16, 16, -10, -18, 18, -10, -20, 18, -8, -20, 18, -8,
+        -20, 18, -8, -20, 18, -8, -20, 18, -8, -20, 18, -8, -20, 18, -8, -20, 18, -8, -20, 18, -8,
+        -20, 18, -8, -20, 18, -8, -20, 18, -8, -20, 18, -8, -20, 18, -8, -20, 18, -8, -20, 18, -10,
+        -18, 18, -12, -16, 20, -14, -18, 22, -14, -18, 22, -14, -18, 22, -14, -18, 22, -14, -18,
+        22, -14, -18, 22, -14, -18, 22, -14, -18, 22, -14, -18, 22, -14, -18, 22, -14, -16, 20,
+        -16, -16, 22, -16, -16, 22, -18, -14, 22, -18, -14, 22, -18, -14, 24, -18, -16, 24, -18,
+        -16, 24, -18, -18, 26, -20, -18, 28, -22, -20, 30, -24, -18, 30, -26, -16, 30, -28, -16,
+        32, -30, -16, 32, -30, -16, 34, -32, -16, 36, -34, -16, 38, -34, -16, 38, -34, -16, 38,
+        -34, -16, 38, -36, -14, 36, -34, -16, 38, -36, -14, 36, -34, -16, 38, -36, -14, 36, -34,
+        -16, 38, -36, -14, 36, -34, -16, 38, -36, -14, 36, -34, -16, 38, -36, -14, 36, -34, -14,
+        36, -34, -14, 36, -34, -14, 36, -34, -14, 36, -34, -14, 36, -34, -14, 36, -34, -14, 36,
+        -34, -14, 36, -36, -12, 34, -36, -10, 34, -38, -8, 34, -40, -8, 36, -42, -8, 38, -44, -6,
+        36, -42, -8, 38, -44, -6, 36, -42, -6, 36, -42, -6, 36, -42, -6, 36, -42, -6, 36, -42, -6,
+        36, -42, -6, 36, -42, -6, 36, -42, -6, 36, -42, -6,
     ];
 
     /// Golden RL# wire words for Mode 3 (4-bit lower sub-band — the two
     /// LSBs of the lower-band codeword are auxiliary data and discarded
-    /// before inverse quantization). For this window the 4-bit path
-    /// reconstructs the lower band at level 0 (wire word 0) throughout.
-    const GOLDEN_RLHASH_MODE3: [i16; 512] = [0; 512];
+    /// before inverse quantization). The coarse 4-bit inverse quantizer
+    /// walks in larger idle steps than the wider modes and snaps back
+    /// to 0 on every third word of the constant-LSB runs.
+    const GOLDEN_RLHASH_MODE3: [i16; 512] = [
+        -4, -4, 0, -4, -4, 0, -4, -6, 0, -6, -6, 0, -8, -8, 0, -8, -8, 0, -8, -8, 0, -8, -8, 0, -8,
+        -8, 0, -8, -8, 0, -8, -8, 0, -8, -8, 0, -8, -8, 0, -8, -8, 0, -8, -8, 0, -8, -8, 0, -8, -8,
+        0, -8, -8, 0, -8, -8, 0, -8, -8, 0, -8, -8, 0, -8, -8, 0, -8, -8, 0, -8, -8, 0, -8, -6, 0,
+        -8, -6, 0, -8, -6, 0, -8, -6, 2, -10, -8, 4, -8, -8, 4, -8, -8, 4, -8, -8, 4, -8, -8, 4,
+        -8, -8, 4, -8, -8, 4, -8, -8, 4, -8, -8, 4, -8, -8, 4, -8, -8, 4, -8, -8, 4, -8, -8, 4, -8,
+        -8, 4, -8, -10, 4, -8, -10, 4, -8, -12, 6, -12, -12, 8, -12, -12, 8, -12, -12, 8, -12, -12,
+        8, -12, -12, 8, -12, -12, 8, -10, -14, 10, -12, -14, 12, -12, -16, 12, -10, -16, 10, -10,
+        -14, 10, -12, -14, 12, -12, -14, 12, -10, -16, 10, -10, -14, 10, -10, -14, 10, -10, -16,
+        12, -12, -14, 12, -12, -14, 12, -12, -14, 12, -12, -14, 12, -12, -14, 12, -12, -14, 12,
+        -12, -16, 14, -10, -18, 14, -8, -18, 14, -8, -18, 14, -10, -18, 16, -10, -20, 16, -8, -20,
+        14, -8, -20, 14, -8, -20, 14, -8, -20, 14, -8, -20, 14, -8, -20, 16, -8, -20, 16, -8, -20,
+        16, -8, -20, 16, -10, -18, 16, -12, -18, 18, -12, -20, 20, -12, -22, 20, -10, -22, 20, -10,
+        -22, 20, -10, -22, 20, -10, -22, 20, -10, -22, 20, -10, -22, 20, -10, -22, 20, -10, -22,
+        20, -10, -22, 20, -10, -22, 20, -10, -22, 20, -10, -22, 20, -10, -22, 20, -10, -22, 20,
+        -10, -22, 20, -12, -20, 20, -14, -18, 22, -16, -20, 24, -16, -20, 24, -16, -20, 24, -16,
+        -20, 24, -16, -20, 24, -16, -20, 24, -16, -20, 24, -16, -20, 24, -16, -20, 24, -16, -20,
+        24, -16, -18, 22, -18, -18, 24, -18, -18, 24, -20, -16, 24, -20, -16, 24, -20, -16, 26,
+        -20, -18, 26, -20, -18, 26, -20, -20, 28, -22, -20, 30, -24, -22, 32, -26, -20, 32, -28,
+        -18, 32, -30, -18, 34, -32, -18, 34, -32, -18, 36, -34, -18, 38, -36, -18, 40, -36, -18,
+        40, -36, -18, 40, -36, -18, 40, -38, -16, 38, -36, -18, 40, -38, -16, 38, -36, -18, 40,
+        -38, -16, 38, -36, -18, 40, -38, -16, 38, -36, -18, 40, -38, -16, 38, -36, -18, 40, -38,
+        -16, 38, -36, -16, 38, -36, -16, 38, -36, -16, 38, -36, -16, 38, -36, -16, 38, -36, -16,
+        38, -36, -16, 38, -36, -16, 38, -38, -14, 36, -38, -12, 36, -40, -10, 36, -42, -10, 38,
+        -44, -10, 40, -46, -8, 38, -44, -10, 40, -46, -8, 38, -44, -8, 38, -44, -8, 38, -44, -8,
+        38, -44, -8, 38, -44, -8, 38, -44, -8, 38, -44, -8, 38, -44, -8, 38, -44, -8,
+    ];
 
     /// Golden RH# wire words for the first 512 `I#` payload samples. The
     /// higher sub-band carries the same 2-bit IH codeword in every mode
@@ -1687,30 +1718,26 @@ mod tests {
         -6, 0, -6, -6, 0, -6, -6, 0, -6, -6, 0, -6, -6, 0, -6, -6, 0, -6, -6, 0, -6, -6, 0, -6, -6,
         0, -6, -6, 0, -6, -6, 0, -6, -6, 0, -6, -6, 0, -6, -6, 0, -6, -6, 0, -6, -6, 0, -6, -6, 0,
         -6, -6, 0, -6, -6, 0, -6, -6, 0, -6, -6, 0, -6, -6, 0, -6, -6, 0, -6, -6, 0, -6, -6, 0, -6,
-        -6, 0, -6, -6, 0, -2, -4, 0, -6, -6, 2, -2, -6, -2, -4, -4, 0, -6, -6, 2, -2, -6, -2, -4,
-        -4, 0, -6, -6, 2, -2, -6, -2, -4, -4, 0, -6, -6, 2, -2, -6, -2, -4, -4, 0, -6, -6, 2, -2,
-        -6, -2, -4, -4, 0, -4, -4, 0, -4, -4, 0, -4, -4, 0, -4, -4, 0, -4, -4, 0, -4, -4, 0, -4,
-        -4, 0, -4, -4, 0, -2, -4, 0, -4, -4, 2, -2, -6, -2, -4, -4, 2, -2, -6, -2, -4, -4, 2, -2,
-        -6, -2, -4, -4, 2, -2, -6, -2, -4, -2, 2, -4, -8, 0, 0, -2, 0, -6, -6, 2, 0, -4, -2, -4,
-        -4, 2, -2, -6, -2, -4, -2, 2, -4, -8, 0, 0, -2, 0, -6, -6, 2, 0, -4, -2, -4, -4, 2, -2, -6,
-        -2, -4, -2, 2, -4, -8, 0, 0, 0, 0, -6, -6, 2, 0, -4, -2, -4, -4, 2, -2, -6, -2, -4, -2, 2,
-        -4, -8, 0, 0, 0, 0, -6, -6, 2, 2, -4, -4, -6, -2, 6, -2, -12, -6, 2, 6, 2, -14, -14, 6, 12,
-        -2, -16, -16, 4, 20, 2, -26, -18, 10, 24, 4, -32, -28, 18, 36, 0, -40, -34, 22, 50, 2, -62,
-        -40, 36, 68, 2, -84, -60, 58, 98, -6, -116, -76, 82, 138, -10, -172, -96, 126, 192, -22,
-        -244, -134, 194, 274, -52, -346, -174, 292, 382, -96, -516, -212, 452, 540, -182, -754,
-        -274, 696, 764, -336, -1088, -326, 1080, 1044, -586, -1622, -328, 1670, 1462, -1028, -2382,
-        -310, 2568, 2016, -1776, -3434, -148, 4006, 2640, -3008, -5088, 368, 6204, 3516, -5064,
-        -7410, 1350, 9470, 4488, -8528, -10464, 3328, 14704, 5106, -14106, -15112, 7278, 22526,
-        5500, -23048, -21274, 14360, 32766, 4506, -32768, -27692, 22788, 32766, 2328, -32768,
-        -26472, 24338, 32766, 72, -32768, -24646, 26634, 32766, -3060, -32768, -21676, 28852,
-        32766, -7252, -32768, -18628, 31776, 32766, -12222, -32768, -14594, 32766, 32766, -15932,
-        -32768, -11170, 32766, 32766, -18502, -32768, -9180, 32766, 32150, -20482, -32768, -7158,
-        32766, 30012, -21856, -32768, -4092, 32766, 28006, -24058, -32768, -732, 32766, 25178,
-        -27156, -32768, 3878, 32766, 20902, -30464, -32768, 10014, 32766, 16042, -32768, -32768,
-        15906, 32766, 11102, -32768, -32768, 19458, 32766, 7752, -32768, -31242, 21932, 32766,
-        4548, -32768, -28470, 24832, 32766, 94, -32768, -24210, 28012, 32766, -6006, -32768,
-        -19376, 32356, 32766, -13604, -32768, -12852, 32766, 32766, -18694, -32768, -8098, 32766,
-        31646, -22196, -32768, -4302, 32766, 28304, -25544, -32768, 1008, 32766,
+        -4, 0, -6, -4, 0, -6, -4, 2, -8, -6, 4, -6, -6, 4, -6, -6, 4, -6, -6, 4, -6, -6, 4, -6, -6,
+        4, -6, -6, 4, -6, -6, 4, -6, -6, 4, -6, -6, 4, -6, -6, 4, -6, -6, 4, -6, -6, 4, -6, -6, 4,
+        -6, -6, 4, -6, -8, 4, -4, -10, 6, -6, -8, 4, -4, -10, 6, -6, -8, 4, -4, -10, 6, -6, -8, 4,
+        -4, -8, 4, -6, -8, 4, -6, -8, 6, -6, -8, 6, -6, -8, 6, -6, -8, 6, -6, -8, 6, -6, -8, 6, -6,
+        -8, 6, -6, -8, 6, -6, -10, 6, -4, -10, 6, -4, -10, 6, -4, -10, 6, -4, -10, 6, -4, -10, 6,
+        -4, -10, 6, -4, -10, 6, -4, -10, 6, -4, -10, 6, -4, -10, 6, -4, -10, 8, -6, -10, 10, -8,
+        -10, 10, -8, -10, 10, -8, -10, 10, -8, -10, 10, -8, -10, 10, -8, -10, 10, -8, -10, 10, -8,
+        -10, 10, -8, -10, 10, -8, -10, 10, -8, -10, 10, -8, -10, 10, -8, -10, 10, -8, -10, 10, -8,
+        -10, 10, -8, -10, 10, -8, -10, 10, -8, -10, 10, -8, -10, 10, -8, -10, 10, -8, -10, 10, -8,
+        -10, 10, -8, -10, 10, -8, -10, 10, -8, -10, 10, -8, -10, 10, -8, -10, 10, -8, -10, 10, -8,
+        -10, 10, -8, -10, 10, -8, -10, 10, -8, -10, 10, -8, -10, 10, -8, -8, 8, -6, -8, 8, -6, -8,
+        8, -8, -6, 8, -10, -6, 10, -10, -8, 12, -10, -10, 12, -10, -10, 12, -10, -12, 14, -12, -12,
+        16, -14, -12, 18, -16, -12, 18, -18, -10, 18, -20, -10, 20, -20, -12, 22, -20, -14, 24,
+        -20, -14, 24, -20, -12, 22, -20, -12, 22, -20, -12, 22, -20, -12, 22, -20, -12, 22, -20,
+        -12, 22, -20, -12, 22, -20, -12, 22, -20, -12, 22, -20, -12, 22, -20, -12, 22, -20, -12,
+        22, -22, -10, 24, -24, -10, 24, -24, -10, 24, -24, -8, 22, -24, -8, 22, -24, -8, 22, -24,
+        -8, 22, -24, -8, 22, -24, -8, 22, -24, -8, 22, -24, -8, 22, -24, -8, 22, -24, -8, 22, -24,
+        -8, 22, -24, -8, 22, -24, -8, 22, -24, -8, 22, -24, -8, 22, -24, -8, 22, -24, -8, 22, -24,
+        -8, 22, -24, -8, 22, -24, -8, 22, -24, -8, 22, -24, -8, 22, -24, -8, 22, -24, -8, 22, -24,
+        -8,
     ];
 
     #[test]
@@ -1801,9 +1828,9 @@ mod tests {
         let stream = build_i_hash_stream();
         assert_eq!(stream.len(), ARTIFICIAL_SEQUENCE_LEN);
         let cases = [
-            (Mode::Mode1, 0xdb6a_4ea6_424f_328a_u64),
-            (Mode::Mode2, 0x153d_9c6a_5e2d_a104_u64),
-            (Mode::Mode3, 0x533d_2ce7_f57d_3e29_u64),
+            (Mode::Mode1, 0x1ab2_e0c5_2ad4_8825_u64),
+            (Mode::Mode2, 0xfcfd_cf81_5a44_17fc_u64),
+            (Mode::Mode3, 0x321e_461c_591e_bdfe_u64),
         ];
         for (mode, golden) in cases {
             let mut dec = Decoder::new(mode);
@@ -1889,43 +1916,43 @@ mod tests {
     /// the spec-derived artificial Configuration-2 sequence and locked
     /// here.
     const GOLDEN_II4_RL_MODE1: [i16; II4_BOUNDARIES] = [
-        -2, -2, -2, -4, -4, 0, -4, -4, 16894, 32766, 32766, 32766, 32766, 32766, 32766, 32766,
-        32766, 32766, 32766, 32766, 32766, 32766, 32766, 32766, 32766, 32766, 21022, 5662, 6124,
-        6076, 6548, 6516, 14412, 11320, 32766, 32766, 32766, 32766, 32766, 32766, 23622, -32768,
-        -32768, -32768, -32768, -32768, -32768, -32768, -32768, -32768, 32766, -18790, 32766,
-        -32768, -32768, 32766, 32766, 32766, 32766, 32766, 32766, 32766, 32766, 32766,
+        -2, -18, 36, -50, 14, 14, -46, 18, 38, -14, 8, -182, -160, -154, -154, -150, -1752, 6856,
+        10334, 11600, 12086, 12236, 12278, 12278, 32766, -22960, 32766, 32766, 32766, 32766, 32766,
+        32766, 32766, 32766, 32766, 32766, 32766, 32766, 32766, 32766, 32766, -32768, -32768,
+        -32768, -32768, -32768, -32768, -32768, -32768, -23890, 32766, -32768, 32766, -32768,
+        -3332, 32766, -32768, 32766, 32766, 32766, 32766, 32766, 32766, 32766,
     ];
 
     /// Golden RL# boundary words, **Mode 2** (5-bit lower sub-band).
     const GOLDEN_II4_RL_MODE2: [i16; II4_BOUNDARIES] = [
-        -2, -2, -2, -2, -4, 0, -4, -4, 16894, 32766, 32766, 32766, 32766, 32766, 32766, 32766,
-        32766, 32766, 32766, 32766, 32766, 32766, 32766, 32766, 32766, 32766, 20798, 5438, 6356,
-        6308, 6300, 6268, 14668, 11576, 32766, 32766, 32766, 32766, 32766, 32766, 23150, -32768,
-        -32768, -32768, -32768, -32768, -32768, -32768, -32768, -32768, 32766, -17342, 32766,
-        -32768, -32768, 32766, 32766, 32766, 32766, 32766, 32766, 32766, 32766, 32766,
+        -2, -18, 36, -48, 14, 14, -46, 18, 38, -14, 8, -182, -160, -154, -154, -150, -1748, 6860,
+        10330, 11596, 12090, 12240, 12274, 12274, 32766, -22752, 32766, 32766, 32766, 32766, 32766,
+        32766, 32766, 32766, 32766, 32766, 32766, 32766, 32766, 32766, 32766, -32768, -32768,
+        -32768, -32768, -32768, -32768, -32768, -32768, -24746, 32766, -32768, 32766, -32768,
+        -1876, 32766, -32768, 32766, 32766, 32766, 32766, 32766, 32766, 32766,
     ];
 
     /// Golden RL# boundary words, **Mode 3** (4-bit lower sub-band). The
-    /// leading sub-sequences sit at 0 because dropping the two lowest
-    /// `I_L` bits flattens the constant-magnitude LSB runs to the
-    /// reset-state output.
+    /// coarser 4-bit inverse quantizer takes larger idle steps over the
+    /// constant-magnitude LSB runs (every third word snaps back to 0),
+    /// so the walk differs from both wider modes from the first word.
     const GOLDEN_II4_RL_MODE3: [i16; II4_BOUNDARIES] = [
-        0, 0, 0, 0, 0, 0, 0, 0, 16894, 32766, 32766, 32766, 32766, 32766, 32766, 32766, 32766,
-        32766, 32766, 32766, 32766, 32766, 32766, 32766, 32766, 32766, 19598, 4238, 4244, 4196,
-        4188, 4156, 13196, 10104, 32766, 32766, 32766, 32766, 32766, 32766, 25846, -32768, -32768,
-        -32768, -32768, -32768, -32768, -32768, -32768, -32768, 32766, -12678, 32766, -32768,
-        -32768, 32766, 32766, 32766, 32766, 32766, 32766, 32766, 32766, 32766,
+        -4, -20, 38, -50, 14, 14, -46, 18, 40, -14, 10, -180, -160, -154, -154, -150, -1738, 6868,
+        10338, 11604, 12080, 12230, 12264, 12264, 32766, -22296, 32766, 32766, 32766, 32766, 32766,
+        32766, 32766, 32766, 32766, 32766, 32766, 32766, 32766, 32766, 32766, -32768, -32768,
+        -32768, -32768, -32768, -32768, -32768, -32768, -27642, 32766, -32768, 32766, -32768, 1020,
+        32766, -32768, 32766, 32766, 32766, 32766, 32766, 32766, 32766,
     ];
 
     /// Golden RH# boundary words. Mode-independent (the higher sub-band
     /// codeword carries no auxiliary-data LSB substitution), so shared
     /// across all three modes.
     const GOLDEN_II4_RH: [i16; II4_BOUNDARIES] = [
-        -2, -6, 23258, 27796, 32766, -26270, -14390, 32002, -32768, -2448, 32766, 32766, 32766,
-        32766, 32766, 32766, 32766, 32766, 32766, 32766, 32766, 32766, 32766, 32766, 32766, -28620,
-        3394, 8052, 10932, 12270, 12830, 12986, 18778, 22410, 32766, 32766, 32766, 32766, 32766,
-        32766, 32766, -24072, -32768, -32768, -32768, -32768, -32768, -32768, -32768, 32766, 32766,
-        32766, 32766, 32766, 32766, 32766, 32766, 32766, 32766, 14950, 11296, 32766, 32766, 28042,
+        -2, -10, 22, -30, 8, 6, -32, 14, 6, -2310, -3546, -11240, -14058, -15102, -15476, -15650,
+        -9940, 32766, 32766, 32766, 32766, 32766, 32766, 32766, 32766, -4818, 32766, 32766, 32766,
+        32766, 32766, 32766, 32766, 32766, 32766, 32766, 32766, 32766, 32766, 32766, 32766, -32768,
+        -32768, -32768, -32768, -32768, -32768, -32768, -32768, -186, -122, -124, -122, -122, -124,
+        -122, -122, 32766, -8020, -32768, -32768, 24620, 32766, -21110,
     ];
 
     /// Sample the production receive path at each Table II-4 boundary
@@ -2039,7 +2066,8 @@ mod tests {
     fn appendix_ii_modes_are_pairwise_distinct_on_lower_band_golden() {
         // The three modes consume a different number of lower-band bits,
         // so on this window their RL# golden vectors must differ: Mode 1
-        // swings -2/-4, Mode 2 flattens to -2, Mode 3 sits at 0.
+        // three modes recover different DL magnitudes from the same
+        // wire words, so their adaptation walks diverge.
         assert_ne!(GOLDEN_RLHASH_MODE1, GOLDEN_RLHASH_MODE2);
         assert_ne!(GOLDEN_RLHASH_MODE2, GOLDEN_RLHASH_MODE3);
         assert_ne!(GOLDEN_RLHASH_MODE1, GOLDEN_RLHASH_MODE3);
@@ -2170,14 +2198,15 @@ mod tests {
     /// that is `0x0400 = 1024` with `I_H = 0`. The `+16383` words drive
     /// the opposite-polarity saturation path, yielding the `-24576`
     /// (`0xA000`: `I_H = 2`, `I_L = 0b100000` = max positive lower
-    /// code-word) companion word. The alternation continues while the
-    /// pole / zero predictor coefficients track the full-scale square
-    /// wave under the overflow-control saturation of clauses 3.6.1 /
-    /// 3.6.2 (BLOCK 4L / 4H).
+    /// code-word) companion word. The strict two-word alternation holds
+    /// for the first five pairs, then the code-words grow in magnitude
+    /// as the pole / zero predictor coefficients start tracking the
+    /// full-scale square wave under the overflow-control saturation of
+    /// clauses 3.6.1 / 3.6.2 (BLOCK 4L / 4H).
     const GOLDEN_OVERFLOW_I_HASH_HEAD: [i16; 32] = [
-        1024, -24576, 1024, -24576, 1024, -24576, 1024, -24576, 1024, -24576, 1024, -24576, 1024,
-        -24576, 1024, -24576, 1024, -24576, 1024, -24576, 1024, -24576, 1024, -24576, 1024, -24576,
-        1024, -24576, 1024, -24576, 1024, -24576,
+        1024, -24576, 1024, -24576, 1024, -24576, 1024, -24576, 1024, -24576, 1280, -24320, 1536,
+        -23808, 2048, -23552, 2048, -23552, 2304, -23296, 2304, -23040, 2816, -22528, 2816, -22272,
+        3328, -22272, 3328, -22272, 3584, -22016,
     ];
 
     #[test]
@@ -2208,7 +2237,7 @@ mod tests {
         // Whole-sequence bit-exact fingerprint.
         assert_eq!(
             fnv1a_i_hash(&out),
-            0x21ba_1840_cd7a_f612_u64,
+            0x0e20_a664_5974_6fcc_u64,
             "overflow encoder I# full-sequence checksum diverged"
         );
 
@@ -2276,18 +2305,19 @@ mod tests {
     /// overflow Configuration-1 input encoded then decoded in Mode 1.
     /// After the reset-state suppressed-codeword start the receive
     /// predictor locks onto the full-scale square wave and the RL# wire
-    /// word swings out to ± ~30000 (≈ ± 15000 reconstructed samples after
-    /// the INFD `>> 1`), alternating polarity every word.
+    /// word swings out to the ±32766 / -32768 wire rails (the LIMIT
+    /// block's ±16383 / -16384 reconstructed samples after the INFD
+    /// `>> 1`), alternating polarity every word.
     const GOLDEN_OVERFLOW_RT_RL_MODE1_HEAD: [i16; 24] = [
-        -50, 132, -372, 1020, -2796, 7570, -20558, 25236, -25216, 25366, -25992, 26752, -27430,
-        27758, -28000, 28262, -28584, 28874, -29182, 29458, -29758, 30032, -30332, 30604,
+        -50, 132, -376, 1038, -2864, 7800, -21332, 27712, -30054, 32208, -31516, 32766, -32768,
+        32766, -32480, 32550, -32768, 32766, -32216, 32502, -32768, 32546, -32544, 32506,
     ];
     /// Golden RH# leading window (first 24 words). The higher band is
     /// mode-invariant (only the lower band trades bits for auxiliary
     /// data), so this window holds for all three modes.
     const GOLDEN_OVERFLOW_RT_RH_HEAD: [i16; 24] = [
-        -4, 2, -8, 2, -16, 8, -28, 16, -40, 34, -58, 60, -92, 104, -150, 180, -246, 296, -402, 488,
-        -642, 808, -1032, 1302,
+        -4, 2, -10, 6, -20, 12, -32, 22, -48, 42, -72, 78, -116, 138, -198, 244, -338, 420, -570,
+        718, -952, 1222, -1590, 2042,
     ];
 
     #[test]
@@ -2305,9 +2335,9 @@ mod tests {
         // bit-exactly; the leading-window literals (Mode 1) localise a
         // regression to the first 24 words.
         let cases = [
-            (Mode::Mode1, 0x5916_5f03_b37e_9dde_u64),
-            (Mode::Mode2, 0x1c9a_f1f8_272c_3499_u64),
-            (Mode::Mode3, 0x00b7_bc68_f95f_8de6_u64),
+            (Mode::Mode1, 0x67d3_095f_3e59_93a9_u64),
+            (Mode::Mode2, 0xb7db_17e6_514f_cd4c_u64),
+            (Mode::Mode3, 0x3c8e_7637_10d1_f613_u64),
         ];
         let mut prev_fp: Option<u64> = None;
         for (mode, golden) in cases {
@@ -2593,43 +2623,53 @@ mod tests {
         //
         // From reset (s_L = s_H = 0, DETL = DETH = 32, all predictor
         // memory zero) a zero sub-band input produces a zero difference
-        // signal e_L = x_L - s_L = 0 in both bands. The log quantizer
-        // maps a zero (non-negative) difference to a fixed mid-scale
-        // code-word, and because the reconstructed signal stays at zero
-        // the predictor and scale factor never move — so every output
-        // word is identical. This is the deterministic *silence*
-        // response of the quantizer / predictor feedback loop, a path
-        // distinct from the full-scale overflow excitation of the
-        // Table II-3 sequence.
-        //
-        // The constant word is `0xFA00` (= -1536 as i16): I_H = 3
-        // (0xFA00 >> 14), I_L = 0x3A = 58 (bits 8..13), RSS = 0. Both
-        // sub-bands quantize their zero difference to the same level
-        // since Configuration-1 feeds XH = XL = 0.
+        // signal e_L = x_L - s_L = 0 in both bands, which the log
+        // quantizer maps to a fixed mid-scale code-word: `0xFA00`
+        // (= -1536 as i16): I_H = 3 (0xFA00 >> 14), I_L = 0x3A = 58
+        // (bits 8..13), RSS = 0. The output is *not* constant forever,
+        // though: INVQAL turns that code-word into DLT = +1 (RIL =
+        // 0b1110 → IL4 = 1 per Table 17, QQ4(1) = 150, and
+        // (32 · (150 << 3)) >> 15 = 1), so the local-decoder predictor
+        // slowly charges until the difference signal goes negative and
+        // the code-word starts hunting around the idle-channel steady
+        // state. The ITU conformance corpus corroborates the constant
+        // leading run (its zero lead-in stays on this same octet over
+        // its whole 36-octet span); the hunting tail is pinned by the
+        // whole-segment fingerprint below. (An earlier QQ4
+        // transcription collapsed DLT to 0, freezing the word forever —
+        // the corpus disproved that.)
         use super::appendix_ii::{build_table_ii_2_dc_zero_x_hash_stream, TABLE_II_2_DC_ZERO_LEN};
         let x_hash = build_table_ii_2_dc_zero_x_hash_stream();
         let mut enc = Encoder::new();
         let out = run_configuration_1(&mut enc, &x_hash);
         assert_eq!(out.len(), TABLE_II_2_DC_ZERO_LEN);
 
-        // Every output word is the constant silence code-word 0xFA00.
+        // The reset-state silence code-word holds for exactly 44 words
+        // before predictor drift first flips the difference sign.
         const SILENCE_WORD: i16 = -1536; // 0xFA00
-        for (i, &w) in out.iter().enumerate() {
-            assert_eq!(w, SILENCE_WORD, "DcZero encoder I# diverged at word {i}");
-        }
-        // Decompose the constant word against the INFB / Figure II-2
+        let head = out.iter().take_while(|&&w| w == SILENCE_WORD).count();
+        assert_eq!(head, 44, "leading constant silence run length");
+        // Decompose the silence word against the INFB / Figure II-2
         // bit layout.
         let u = SILENCE_WORD as u16;
         assert_eq!(u & RSS_MASK, 0, "DcZero word must carry RSS clear");
         assert_eq!((u >> I_HASH_IH_SHIFT) & 0x3, 3, "I_H field");
         assert_eq!((u >> I_HASH_IL_SHIFT) & 0x3F, 0x3A, "I_L field");
+        // The hunting tail still carries RSS clear and a valid
+        // (non-suppressed) lower-band code-word on every word.
+        for (i, &w) in out.iter().enumerate() {
+            assert_eq!((w as u16) & RSS_MASK, 0, "DcZero I# word {i} set RSS");
+            let il = ((w as u16) >> I_HASH_IL_SHIFT) & 0x3F;
+            assert!(
+                il >= 0b000100,
+                "DcZero encoder emitted suppressed I_L {il:#04x} at word {i}"
+            );
+        }
 
-        // Whole-segment bit-exact fingerprint (redundant with the
-        // per-word check above, but matches the overflow-sequence
-        // anchoring style and guards a future non-constant regression).
+        // Whole-segment bit-exact fingerprint pins the hunting tail.
         assert_eq!(
             fnv1a_i_hash(&out),
-            0x9da0_a403_3466_9325_u64,
+            0x45a1_6437_7dc6_64dd_u64,
             "DcZero encoder I# full-segment checksum diverged"
         );
     }
@@ -2639,18 +2679,27 @@ mod tests {
         // Chain the fully-specified DcZero segment through the whole
         // codec: encode the 512 zero words (Configuration-1), then feed
         // the resulting I# stream into the Configuration-2 receive
-        // decoder, per mode. The silence excitation keeps both sub-band
-        // reconstructed signals constant in steady state, so the
-        // RL#/RH# output settles to a fixed per-mode word. Pinning it
-        // proves the transmit and receive feedback loops agree on a
-        // silence input across all three modes.
+        // decoder, per mode. The silence excitation keeps the receive
+        // reconstruction pinned to the idle-channel noise floor: the
+        // higher band reconstructs an exact zero on every word (the
+        // silence code-word's I_H = 3 inverse-quantizes to D_H = 0 at
+        // the DETH floor and the predictor never charges), while the
+        // lower band hunts within a couple of LSBs of zero as the
+        // transmit-side predictor drift flips the code-word (see the
+        // encoder-output test above). A per-mode FNV-1a fingerprint
+        // pins the whole chain bit-exactly.
         use super::appendix_ii::{build_table_ii_2_dc_zero_x_hash_stream, TABLE_II_2_DC_ZERO_LEN};
         let x_hash = build_table_ii_2_dc_zero_x_hash_stream();
         let mut enc = Encoder::new();
         let i_hash = run_configuration_1(&mut enc, &x_hash);
         assert_eq!(i_hash.len(), TABLE_II_2_DC_ZERO_LEN);
 
-        for mode in [Mode::Mode1, Mode::Mode2, Mode::Mode3] {
+        let cases = [
+            (Mode::Mode1, 2, 0x38d3_e851_df74_94af_u64),
+            (Mode::Mode2, 4, 0x08e3_3957_b03e_b33e_u64),
+            (Mode::Mode3, 6, 0x94fb_04b5_e209_4571_u64),
+        ];
+        for (mode, rl_bound, golden) in cases {
             let mut dec = Decoder::new(mode);
             let out = run_configuration_2(&mut dec, &i_hash);
             assert_eq!(out.rl_hash.len(), TABLE_II_2_DC_ZERO_LEN);
@@ -2660,24 +2709,29 @@ mod tests {
             for (i, &w) in out.rl_hash.iter().enumerate() {
                 assert_eq!((w as u16) & RSS_MASK, 0, "{mode:?} RL# RSS set at {i}");
             }
+
+            // The higher sub-band reconstructs exact digital silence.
             for (i, &w) in out.rh_hash.iter().enumerate() {
-                assert_eq!((w as u16) & RSS_MASK, 0, "{mode:?} RH# RSS set at {i}");
+                assert_eq!(w, 0, "{mode:?} RH# not zero at {i}");
             }
 
-            // The higher sub-band path is mode-independent (the
-            // auxiliary-bit strip touches only the lower band), so RH#
-            // is constant and identical across all three modes.
-            let rh0 = out.rh_hash[0];
-            for (i, &w) in out.rh_hash.iter().enumerate() {
-                assert_eq!(w, rh0, "{mode:?} RH# not constant at {i}");
+            // The lower band stays on the idle-channel noise floor:
+            // |RL#| never exceeds a couple of wire-word LSBs (the bound
+            // grows with the discarded auxiliary bits since the coarser
+            // inverse quantizer takes bigger idle steps).
+            for (i, &w) in out.rl_hash.iter().enumerate() {
+                assert!(
+                    i32::from(w).abs() <= rl_bound,
+                    "{mode:?} RL# {w} left the idle-channel floor at {i}"
+                );
             }
 
-            // The lower sub-band RL# settles to a constant in steady
-            // state; pin the settled tail word per mode.
-            let rl_tail = *out.rl_hash.last().unwrap();
-            for &w in &out.rl_hash[out.rl_hash.len() - 32..] {
-                assert_eq!(w, rl_tail, "{mode:?} RL# not settled in tail");
-            }
+            // Bit-exact whole-chain fingerprint.
+            assert_eq!(
+                fnv1a_config2(&out),
+                golden,
+                "DcZero full-circuit checksum diverged for {mode:?}"
+            );
         }
     }
 }

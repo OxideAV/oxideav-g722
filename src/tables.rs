@@ -63,9 +63,18 @@ pub const QQ5: [i32; 16] = [
 ];
 
 /// Lower sub-band 4-bit inverse-quantizer output magnitudes
-/// `QQ4(1..7)` (Table 14/G.722, p. 35). Index 0 is a sentinel;
-/// `QQ4(1) = 0`.
-pub const QQ4: [i32; 8] = [0, 0, 150, 323, 530, 786, 1121, 1612];
+/// `QQ4(IL4)` (Table 14/G.722, p. 35), indexed **directly by the
+/// 4-bit codeword magnitude `IL4` in the range 0..=7** exactly like
+/// [`WL`] right below it: Table 17/G.722 emits `IL4 = 0..7`, so the
+/// eight printed rows of the QQ4 column map to `IL4 = row − 1`.
+///
+/// An earlier transcription kept the printed 1-based row numbers as
+/// literal indices (leading sentinel), which shifted every magnitude
+/// one row low and dropped the top output `2557` altogether — the
+/// ITU conformance corpus (`tests/itu_conformance.rs`) exposes that
+/// within the first 40 octets (the INVQAL predictor-update path reads
+/// this table on *every* octet, whatever the mode).
+pub const QQ4: [i32; 8] = [0, 150, 323, 530, 786, 1121, 1612, 2557];
 
 /// Lower sub-band logarithmic-scale-factor multipliers `WL` (Table
 /// 14/G.722, p. 35). Indexed by the truncated 4-bit codeword

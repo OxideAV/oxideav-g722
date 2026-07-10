@@ -139,10 +139,11 @@ impl LowerDecoderState {
         let rlt = add(sl, dlt);
 
         // (6) Adaptation (PARREC -> UPPOL2 -> UPPOL1 -> UPZERO ->
-        //     LOGSCL -> SCALEL Method 2).
+        //     LOGSCL -> SCALEL Method 2). UPPOL1 consumes the *new*
+        //     APL2 (its named input per clause 6.2.1.4).
         self.s.update_partial_reconstructed(dlt, szl);
         let new_apl2 = self.s.update_pole_coeff_2();
-        let new_apl1 = self.s.update_pole_coeff_1();
+        let new_apl1 = self.s.update_pole_coeff_1(new_apl2);
         let new_bl = self.s.update_zero_coeffs(dlt);
 
         // LOGSCL uses the 4-bit truncated code-word's WL(il4).
@@ -152,9 +153,7 @@ impl LowerDecoderState {
 
         // (7) Shift delay lines & latch new coefficients (DELAYA blocks).
         self.s.shift_dlt(dlt);
-        self.s.rlt[2] = self.s.rlt[1];
-        self.s.rlt[1] = self.s.rlt[0];
-        self.s.rlt[0] = rlt;
+        self.s.shift_rlt(rlt);
         self.s.al2 = new_apl2;
         self.s.al1 = new_apl1;
         self.s.bl = new_bl;
@@ -213,10 +212,11 @@ impl HigherDecoderState {
         // because RH is also fed into the receive QMF as a 16-bit
         // signal (Table 9 page 21).
 
-        // (4) PARREC and adaptation.
+        // (4) PARREC and adaptation. UPPOL1 consumes the *new* APH2
+        //     (its named input per clause 6.2.2.4).
         self.s.update_partial_reconstructed(dh, szh);
         let new_apl2 = self.s.update_pole_coeff_2();
-        let new_apl1 = self.s.update_pole_coeff_1();
+        let new_apl1 = self.s.update_pole_coeff_1(new_apl2);
         let new_bl = self.s.update_zero_coeffs(dh);
 
         let ih_idx = (ih & 0x3) as usize;
@@ -227,9 +227,7 @@ impl HigherDecoderState {
 
         // (5) Shift state.
         self.s.shift_dlt(dh);
-        self.s.rlt[2] = self.s.rlt[1];
-        self.s.rlt[1] = self.s.rlt[0];
-        self.s.rlt[0] = add(sh, dh);
+        self.s.shift_rlt(add(sh, dh));
         self.s.al2 = new_apl2;
         self.s.al1 = new_apl1;
         self.s.bl = new_bl;
@@ -266,6 +264,30 @@ impl ReceiveQmf {
     /// Process one paired (rl, rh) sample, returning two 16-kHz output
     /// samples `(xout1, xout2)` per the SELECT block (page 27).
     fn step(&mut self, rl: i32, rh: i32) -> (i32, i32) {
+        let (wd_c, wd_d) = self.accumulate(rl, rh);
+        let xout1 = clamp_qmf(wd_c >> 12);
+        let xout2 = clamp_qmf(wd_d >> 12);
+        (xout1, xout2)
+    }
+
+    /// Same synthesis bank with the output regarded as one bit *finer*
+    /// than the Table 9/G.722 wire format: full-scale 16-bit uniform
+    /// PCM. ACCUMC / ACCUMD Note 2 (clause 5.2.2, p. 29) allows the
+    /// rescaling; emitting `WD >> 11` instead of `WD >> 12` keeps one
+    /// extra true output bit from the accumulator (it is *not* a zero
+    /// LSB — the filter products genuinely populate it). Saturates to
+    /// the full 16-bit range. This is the output convention of the
+    /// ITU-T G.191 conformance corpus (`outsp1/2/3.bin`); see
+    /// `tests/itu_conformance.rs`.
+    fn step_pcm16(&mut self, rl: i32, rh: i32) -> (i16, i16) {
+        let (wd_c, wd_d) = self.accumulate(rl, rh);
+        (clamp_i16(wd_c >> 11), clamp_i16(wd_d >> 11))
+    }
+
+    /// Shift the delay lines and run the ACCUMC / ACCUMD accumulations,
+    /// returning the raw Q28 partial sums `(WD_c, WD_d)` before the
+    /// output normalisation shift.
+    fn accumulate(&mut self, rl: i32, rh: i32) -> (i64, i64) {
         // RECA + RECB at page 25.
         let xd_new = sub(rl, rh);
         let xs_new = add(rl, rh);
@@ -300,10 +322,8 @@ impl ReceiveQmf {
         // (Equivalently WD >> (y-16) with the spec's free parameter
         // y = 28 >= 23.) XOUT1/XOUT2 then saturate to the 15-bit
         // 2's-complement output range -16384..=16383 (Table 9/G.722,
-        // p. 25).
-        let xout1 = clamp_qmf(wd_c >> 12);
-        let xout2 = clamp_qmf(wd_d >> 12);
-        (xout1, xout2)
+        // p. 25) in the caller's output stage.
+        (wd_c, wd_d)
     }
 }
 
@@ -314,6 +334,19 @@ fn clamp_qmf(v: i64) -> i32 {
         -16384
     } else {
         v as i32
+    }
+}
+
+/// Saturate a shifted QMF accumulator to the full 16-bit output range
+/// used by the 16-bit PCM convention (spec `+`/`-` saturation rails,
+/// clause 6.1).
+fn clamp_i16(v: i64) -> i16 {
+    if v > 32767 {
+        32767
+    } else if v < -32768 {
+        -32768
+    } else {
+        v as i16
     }
 }
 
@@ -415,6 +448,57 @@ impl Decoder {
     pub fn decode(&mut self, input: &[u8]) -> alloc::vec::Vec<i32> {
         let mut out = alloc::vec![0_i32; input.len() * 2];
         self.decode_into(input, &mut out);
+        out
+    }
+
+    /// Decode one 64-kbit/s octet into two **full-scale 16-bit PCM**
+    /// samples at 16 kHz.
+    ///
+    /// [`Decoder::decode_octet`] emits XOUT in the Recommendation's
+    /// Table 9/G.722 wire format (clause 5.1, p. 25): a sign-extended
+    /// 15-bit value whose most-significant magnitude bit sits at the
+    /// third bit location ("the LSB is set to 0 for 14-bit
+    /// converters"). This entry point instead emits ordinary 16-bit
+    /// uniform PCM: the receive-QMF accumulator is normalised by one
+    /// bit less (ACCUMC / ACCUMD Note 2 rescaling freedom, clause
+    /// 5.2.2), so the extra LSB carries true filter output rather than
+    /// padding — it is **not** equivalent to `decode_octet(..) << 1`.
+    ///
+    /// This is the convention under which the decoder is bit-exact
+    /// against the ITU-T G.191 conformance corpus (`docs/audio/g722/
+    /// conformance/`, `codspw.cod` → `outsp1/2/3.bin` in all three
+    /// modes); see `tests/itu_conformance.rs`.
+    pub fn decode_octet_pcm16(&mut self, octet: u8) -> (i16, i16) {
+        let ih = ((octet >> 6) & 0x3) as u32;
+        let ilr = (octet & 0x3F) as u32;
+        let rl = self.lower.step(ilr, self.mode);
+        let rh = self.higher.step(ih);
+        self.qmf.step_pcm16(rl, rh)
+    }
+
+    /// Decode a slice of octets into 16-bit PCM, writing 2 samples per
+    /// octet into `out`. See [`Decoder::decode_octet_pcm16`].
+    ///
+    /// # Panics
+    /// Panics if `out` is shorter than `2 * input.len()`.
+    pub fn decode_pcm16_into(&mut self, input: &[u8], out: &mut [i16]) {
+        assert!(
+            out.len() >= input.len() * 2,
+            "G.722 output buffer must hold 2 samples per input octet"
+        );
+        for (i, &octet) in input.iter().enumerate() {
+            let (a, b) = self.decode_octet_pcm16(octet);
+            out[2 * i] = a;
+            out[2 * i + 1] = b;
+        }
+    }
+
+    /// Decode a slice of octets, returning a freshly allocated vector
+    /// of full-scale 16-bit PCM samples. See
+    /// [`Decoder::decode_octet_pcm16`].
+    pub fn decode_pcm16(&mut self, input: &[u8]) -> alloc::vec::Vec<i16> {
+        let mut out = alloc::vec![0_i16; input.len() * 2];
+        self.decode_pcm16_into(input, &mut out);
         out
     }
 

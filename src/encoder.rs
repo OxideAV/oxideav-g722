@@ -72,6 +72,33 @@ impl TransmitQmf {
     /// more than the receive QMF, because eqs 3-1 / 3-2 have no leading
     /// "× 2" factor whereas the receive-side eqs 4-3 / 4-4 do.
     fn step(&mut self, x_first: i32, x_second: i32) -> (i32, i32) {
+        self.step_with_shift(x_first, x_second, 13)
+    }
+
+    /// Same analysis bank with the input regarded as one bit *finer*
+    /// than the Table 9/G.722 wire format: 16-bit uniform PCM whose
+    /// most-significant magnitude bit sits at the second (not third)
+    /// bit location. ACCUMA / ACCUMB Note 2 (clause 5.2.1, p. 28)
+    /// explicitly allows the inputs to be shifted "if so desired"
+    /// provided the result is rescaled accordingly — regarding the
+    /// input as `2 · XIN` and rescaling by one extra normalisation bit
+    /// (`>> 14` instead of `>> 13`) is exactly that freedom, and keeps
+    /// the extra LSB of input precision alive through the accumulation
+    /// instead of discarding it before the filter.
+    ///
+    /// This is the convention the ITU-T G.191 conformance corpus uses
+    /// (see `tests/itu_conformance.rs`): `inpsp.bin` carries 16-bit PCM
+    /// whose bit-exact encoding is only reproduced when the full 16-bit
+    /// samples enter the accumulator.
+    fn step_pcm16(&mut self, x_first: i32, x_second: i32) -> (i32, i32) {
+        self.step_with_shift(x_first, x_second, 14)
+    }
+
+    /// Push the pair `(x_in(j-1), x_in(j))` through the analysis bank
+    /// and return `(x_L, x_H)`; `shift` selects the LOWT / HIGHT
+    /// normalisation (13 for Table 9 15-bit inputs, 14 for the 16-bit
+    /// convention of [`Self::step_pcm16`]).
+    fn step_with_shift(&mut self, x_first: i32, x_second: i32, shift: u32) -> (i32, i32) {
         // Shift the delay lines by one 8 kHz period (= two 16 kHz
         // samples). The freshest 16 kHz sample x_in(j) lands in
         // even[0]; the previous 16 kHz sample x_in(j-1) lands in
@@ -95,8 +122,8 @@ impl TransmitQmf {
         // / difference are formed *before* the shift, exactly as the
         // LOWT / HIGHT sub-blocks specify, then saturated to the
         // 14-bit-uniform Table 9 range.
-        let xl = clamp_qmf((xa + xb) >> 13);
-        let xh = clamp_qmf((xa - xb) >> 13);
+        let xl = clamp_qmf((xa + xb) >> shift);
+        let xh = clamp_qmf((xa - xb) >> shift);
         (xl, xh)
     }
 }
@@ -237,10 +264,11 @@ impl LowerEncoderState {
         // (5) Reconstruct: r_Lt = s_L + d_Lt (eq 3-25 with d = d_Lt).
         let rlt = add(sl, dlt);
 
-        // (6) Adaptation — identical to decoder path.
+        // (6) Adaptation — identical to decoder path. UPPOL1 consumes
+        //     the *new* APL2 (its named input per clause 6.2.1.4).
         self.s.update_partial_reconstructed(dlt, szl);
         let new_apl2 = self.s.update_pole_coeff_2();
-        let new_apl1 = self.s.update_pole_coeff_1();
+        let new_apl1 = self.s.update_pole_coeff_1(new_apl2);
         let new_bl = self.s.update_zero_coeffs(dlt);
 
         let nbpl = self.s.update_log_scale(WL[il4]);
@@ -248,9 +276,7 @@ impl LowerEncoderState {
 
         // (7) Shift delay lines and latch new coefficients.
         self.s.shift_dlt(dlt);
-        self.s.rlt[2] = self.s.rlt[1];
-        self.s.rlt[1] = self.s.rlt[0];
-        self.s.rlt[0] = rlt;
+        self.s.shift_rlt(rlt);
         self.s.al2 = new_apl2;
         self.s.al1 = new_apl1;
         self.s.bl = new_bl;
@@ -329,19 +355,18 @@ impl HigherEncoderState {
         let dh = mul(self.s.detl, wd2);
         let rh = add(sh, dh);
 
-        // (5) Adaptation.
+        // (5) Adaptation. UPPOL1 consumes the *new* APH2 (its named
+        //     input per clause 6.2.2.4).
         self.s.update_partial_reconstructed(dh, szh);
         let new_apl2 = self.s.update_pole_coeff_2();
-        let new_apl1 = self.s.update_pole_coeff_1();
+        let new_apl1 = self.s.update_pole_coeff_1(new_apl2);
         let new_bl = self.s.update_zero_coeffs(dh);
 
         let nbph = self.s.update_log_scale(WH[ih2]);
         let deph = SubBandState::linear_scale_method2(nbph, 10);
 
         self.s.shift_dlt(dh);
-        self.s.rlt[2] = self.s.rlt[1];
-        self.s.rlt[1] = self.s.rlt[0];
-        self.s.rlt[0] = rh;
+        self.s.shift_rlt(rh);
         self.s.al2 = new_apl2;
         self.s.al1 = new_apl1;
         self.s.bl = new_bl;
@@ -476,6 +501,65 @@ impl Encoder {
     /// Number of samples held over for the next call (0 or 1).
     pub fn pending_samples(&self) -> usize {
         usize::from(self.pending.is_some())
+    }
+
+    /// Encode a single 8 kHz step from two paired **16-bit uniform PCM**
+    /// samples `(x_in(j-1), x_in(j))` and emit one 64 kbit/s octet.
+    ///
+    /// [`Encoder::encode_pair`] consumes the Recommendation's native
+    /// wire format for XIN — Table 9/G.722 (clause 5.1, p. 25): a
+    /// sign-extended 15-bit value whose most-significant magnitude bit
+    /// sits at the *third* bit location of the 16-bit word ("the LSB is
+    /// set to 0 for 14-bit converters"). Real-world 16 kHz audio is
+    /// almost always full-scale 16-bit PCM instead; this entry point
+    /// accepts it directly and keeps its extra bit of precision alive
+    /// through the analysis-QMF accumulation (ACCUMA / ACCUMB Note 2
+    /// rescaling freedom, clause 5.2.1 — one extra normalisation bit
+    /// instead of pre-shifting the input), which is **not** equivalent
+    /// to `encode_pair(x >> 1, ...)`: the discarded LSB participates in
+    /// every one of the 24 filter products.
+    ///
+    /// This is the convention under which the encoder is bit-exact
+    /// against the ITU-T G.191 conformance corpus (`docs/audio/g722/
+    /// conformance/`, `inpsp.bin` → `codspw.cod`); see
+    /// `tests/itu_conformance.rs` for the container derivation.
+    pub fn encode_pcm16_pair(&mut self, x_first: i16, x_second: i16) -> u8 {
+        let (xl, xh) = self.qmf.step_pcm16(i32::from(x_first), i32::from(x_second));
+        let il = self.lower.step(xl);
+        let ih = self.higher.step(xh);
+        ((ih & 0x3) << 6) | (il & 0x3F)
+    }
+
+    /// Encode a 16 kHz **16-bit PCM** slice into a freshly allocated
+    /// octet vector. See [`Encoder::encode_pcm16_pair`] for the
+    /// convention and [`Encoder::encode`] for odd-length handling (the
+    /// held-over sample is shared with the 15-bit entry points, so a
+    /// single stream must stick to one convention).
+    pub fn encode_pcm16(&mut self, input: &[i16]) -> alloc::vec::Vec<u8> {
+        let mut out = alloc::vec::Vec::with_capacity(input.len() / 2 + 1);
+        self.encode_pcm16_into(input, &mut out);
+        out
+    }
+
+    /// Append octets encoded from 16-bit PCM to `out`. See
+    /// [`Encoder::encode_pcm16_pair`] / [`Encoder::encode`].
+    pub fn encode_pcm16_into(&mut self, input: &[i16], out: &mut alloc::vec::Vec<u8>) {
+        let mut iter = input.iter().copied();
+        if let Some(prev) = self.pending.take() {
+            if let Some(s) = iter.next() {
+                out.push(self.encode_pcm16_pair(prev as i16, s));
+            } else {
+                self.pending = Some(prev);
+                return;
+            }
+        }
+        while let Some(a) = iter.next() {
+            let Some(b) = iter.next() else {
+                self.pending = Some(i32::from(a));
+                break;
+            };
+            out.push(self.encode_pcm16_pair(a, b));
+        }
     }
 
     /// Snapshot the embedded local-decoder lower- and higher-sub-band
