@@ -4,6 +4,27 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.0.8](https://github.com/OxideAV/oxideav-g722/compare/v0.0.7...v0.0.8) - 2026-07-10
+
+### Other
+
+- pcm16_convention fuzz target + CHANGELOG entry for the pcm16 hardening
+- robustness totality coverage for the 16-bit PCM entry points
+- README + CHANGELOG — r405 ITU-corpus bit-exactness, pcm16 API, corrected-arithmetic notes
+- ITU conformance corpus wired bit-exact both directions; three arithmetic bugs fixed
+- README + CHANGELOG — full-domain 2.4.2 sweep, 2.4.1 bandwidth, Figure 16 gain-variation gates
+- codec-loop gain-variation vs input level pinned against the Figure 16 corridor (selective meter, all three modes characterized)
+- clause 2.4.2 sweep across the full Figure 10 mask domain + operational clause 2.4.1 nominal 3-dB bandwidth
+- README + CHANGELOG — r401 operational clause-2 completion, robustness fixes, fuzz scaffold
+- decoder header cited the wrong Recommendation edition
+- cargo-fuzz scaffold — four targets over the bitstream-facing surface (decode / encode-roundtrip / QMF-bypass / aux channel)
+- fix clippy unused-parens in robustness closures
+- bitstream-surface robustness — two latent out-of-domain fixes + 8 adversarial totality tests
+- operational clause 2.4.3 absolute group delay — two-tone phase-slope measurement, <= 4 ms enforced on the looped codec
+- frequency-resolved idle-channel conformance — clause 2.4.4 narrow-band + clause 2.4.5 selective limits enforced operationally
+- whole-codec signal-to-total-distortion quality gates (clause 2.4.6 'Under study' pinned empirically)
+- transmission::spectrum — selective / band-limited measurement primitives for the clause 2.4 limits
+
 ### Fixed
 
 - **Three bit-exactness bugs exposed by the ITU-T G.191 G.722
