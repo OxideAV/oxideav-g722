@@ -51,6 +51,13 @@ All notable changes to this project will be documented in this file.
   ANSI-C simulation code precedence over the prose; that code is not
   part of the staged docs).
 
+- **`plc_frames` fuzz target** (`fuzz/`): the Appendix IV PLC decoder
+  under adversarial good/erased frame patterns on both frame lengths —
+  totality of the analysis / pitch / history-buffer indexing, output
+  accounting, and the long-erasure-burst mute floor (gain driven to
+  zero with only the remove-DC filter's ±1 LSB rounding residue
+  allowed).
+
 ### Fixed
 
 - **Three bit-exactness bugs exposed by the ITU-T G.191 G.722

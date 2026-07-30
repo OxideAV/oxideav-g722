@@ -45,6 +45,10 @@ cargo-fuzz = true
 #   rescaling) entry points — decode shadowing within one fine LSB of
 #   2x the Table 9 path on arbitrary octet streams, and wire-invisible
 #   odd chunking through the shared pending-sample buffer.
+# - **`plc_frames`**: the Appendix IV packet-loss-concealment decoder
+#   under adversarial good/erased frame patterns on both frame
+#   lengths — totality of the analysis/pitch/history indexing, output
+#   accounting, and the long-burst mute floor.
 
 [dependencies]
 libfuzzer-sys = "0.4"
@@ -91,5 +95,11 @@ doc = false
 [[bin]]
 name = "pcm16_convention"
 path = "fuzz_targets/pcm16_convention.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "plc_frames"
+path = "fuzz_targets/plc_frames.rs"
 test = false
 doc = false
