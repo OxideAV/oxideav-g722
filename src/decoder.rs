@@ -74,6 +74,20 @@ impl LowerDecoderState {
         self.s.snapshot()
     }
 
+    /// Mutable access to the sub-band predictor / scale-factor state,
+    /// for the Appendix IV PLC state update (clause IV.6.1.4 of the
+    /// staged 2012 Recommendation).
+    pub(crate) fn state_mut(&mut self) -> &mut SubBandState {
+        &mut self.s
+    }
+
+    /// Current logarithmic scale factor NBL (clause 3.5), used by the
+    /// Appendix IV classifier's sub-band energy ratio (clause
+    /// IV.6.1.2.4).
+    pub(crate) fn log_scale_factor(&self) -> i32 {
+        self.s.nbl
+    }
+
     /// INVQAL — clause 6.2.1.2 (page 37). Compute DLT from the
     /// truncated 4-bit IL using Q4 / scale factor DETL.
     fn invqal(il: u32, detl: i32) -> i32 {
@@ -120,8 +134,14 @@ impl LowerDecoderState {
     /// Run one 8-kHz sample of the lower sub-band decoder, returning
     /// the saturated reconstructed signal `RL`.
     pub(crate) fn step(&mut self, ilr: u32, mode: Mode) -> i32 {
-        // (1) Predictor estimate from previous state.
-        let (sl, szl) = self.s.predict();
+        // (1) Predictor estimate from previous state. The Appendix IV
+        //     PLC state update (clause IV.6.1.4) may have planted a
+        //     one-shot (SL, SZL) override for the first sample after
+        //     an erasure.
+        let (sl, szl) = match self.s.pending_prediction.take() {
+            Some(pair) => pair,
+            None => self.s.predict(),
+        };
 
         // (2) INVQAL on truncated 4-bit code-word -> DLT (predictor
         //     update path).
@@ -188,6 +208,20 @@ impl HigherDecoderState {
         self.s.snapshot()
     }
 
+    /// Mutable access to the sub-band predictor / scale-factor state,
+    /// for the Appendix IV PLC state update (clause IV.6.2.4 of the
+    /// staged 2012 Recommendation).
+    pub(crate) fn state_mut(&mut self) -> &mut SubBandState {
+        &mut self.s
+    }
+
+    /// Current logarithmic scale factor NBH (clause 3.5), used by the
+    /// Appendix IV classifier's sub-band energy ratio (clause
+    /// IV.6.1.2.4).
+    pub(crate) fn log_scale_factor(&self) -> i32 {
+        self.s.nbl
+    }
+
     /// INVQAH — higher sub-band inverse quantizer (page 46).
     fn invqah(ih: u32, deth: i32) -> i32 {
         let ih = (ih & 0x3) as usize;
@@ -241,7 +275,7 @@ impl HigherDecoderState {
 /// Receive QMF state — 24-tap delay line for the alternating odd/even
 /// sub-sample reconstruction (clause 5.2.2 / Figure 18, page 25).
 #[derive(Debug, Clone)]
-struct ReceiveQmf {
+pub(crate) struct ReceiveQmf {
     // xd[0..12] = even-tap delay line (RECA output history, 12 taps).
     xd: [i32; 12],
     // xs[0..12] = odd-tap delay line (RECB output history).
@@ -249,7 +283,7 @@ struct ReceiveQmf {
 }
 
 impl ReceiveQmf {
-    fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             xd: [0; 12],
             xs: [0; 12],
@@ -279,7 +313,7 @@ impl ReceiveQmf {
     /// the full 16-bit range. This is the output convention of the
     /// ITU-T G.191 conformance corpus (`outsp1/2/3.bin`); see
     /// `tests/itu_conformance.rs`.
-    fn step_pcm16(&mut self, rl: i32, rh: i32) -> (i16, i16) {
+    pub(crate) fn step_pcm16(&mut self, rl: i32, rh: i32) -> (i16, i16) {
         let (wd_c, wd_d) = self.accumulate(rl, rh);
         (clamp_i16(wd_c >> 11), clamp_i16(wd_d >> 11))
     }

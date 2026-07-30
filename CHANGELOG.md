@@ -4,6 +4,53 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- **Appendix II T-series conformance harness**
+  (`tests/appendix_ii_tseries.rs`): the ITU-distributed digital test
+  sequences (`T1C1.XMT` … `T3H3.RC0`, now staged under
+  `docs/audio/g722/conformance/tseries-appendix-II/`) driven through
+  the Configuration-1 / Configuration-2 QMF-bypass harness. **All
+  eleven legs are bit-exact** — both encoder legs, all nine decoder
+  legs (three code-word inputs × Modes 1/2/3 lower band + the
+  mode-independent higher band) — plus a chained full-circuit leg.
+  The staged binaries are verified against the CRC-32/size table the
+  Recommendation itself publishes (Table II.6) and the hex-ASCII
+  representation (per-line checksums) is cross-checked word-for-word
+  against the LE/BE binaries. The two spec-synthesisable generators in
+  `test_harness::appendix_ii` are confirmed to reproduce `bt1d3.cod`
+  and `bt1c2.xmt` byte-for-byte.
+- **Appendix IV packet-loss concealment** (`src/plc.rs`,
+  `PlcDecoder`): the low-complexity PLC algorithm of the staged 2012
+  consolidated Recommendation implemented from the prose of clauses
+  IV.5 / IV.6 — eighth-order LP analysis with the eq IV-2 asymmetric
+  window, 60-Hz bandwidth-expansion / 40-dB white-noise
+  autocorrelation conditioning and Levinson-Durbin recursion; the
+  clause IV.6.1.2.3 LTP pitch estimator (eq IV-5 quarter-band
+  decimation, γ = 0.94 weighted 2nd-order LP, normalized
+  cross-correlation + refinement); the Figure IV.4 five-way signal
+  classifier (zero-crossing rate, NBH−NBL sub-band energy ratio,
+  eq IV-11 residual peak counter); eq IV-12/-14/-15 residual
+  modification and pitch repetition with the non-voiced two-sample
+  jitter; eq IV-16/-17 LP synthesis with the Table IV.3 class-driven
+  adaptive muting; the clause IV.6.1.3 consecutive-erasure
+  continuation; the clause IV.6.1.4 / IV.6.2.4 ADPCM state updates
+  (including the one-shot `SL`/`SZL` prediction override); the clause
+  IV.6.2.2 higher-band pitch-synchronous repetition; the eq IV-19
+  50-Hz remove-DC post filter with its 4-second hold; and the Table
+  IV.4 Bartlett cross-fade on the first good frame. Validated against
+  the staged Appendix IV vectors (`tests/appendix_iv_plc.rs`): the
+  G.192 container framing and the bit-plane-major payload mapping
+  (`IL4 IL3 IL2 IL1 IH2 IH1 IL5 IL6`, recovered black-box from the
+  vectors) decode every erasure-free prefix **bit-exactly**; with
+  erasures the prose implementation re-converges to bit-exactness on
+  separated good stretches and tracks the reference concealment at
+  zero lag (overall SNR ≈ 12–14 dB vs the reference outputs, pinned
+  as regression floors). Full bit-exactness is bounded by the
+  reference's unpublished fixed-point recipes (clause IV.7 gives the
+  ANSI-C simulation code precedence over the prose; that code is not
+  part of the staged docs).
+
 ### Fixed
 
 - **Three bit-exactness bugs exposed by the ITU-T G.191 G.722

@@ -87,6 +87,13 @@ pub(crate) struct SubBandState {
     /// Initial Δ after a reset (32 for lower, 8 for higher band — the
     /// "Δ_min" floor of eq 3-17 / 3-18 in the chosen fixed-point scale).
     pub(crate) detl_reset: i32,
+    /// One-shot `(SL, SZL)` prediction override, consumed by the next
+    /// call to the sub-band step. Used by the Appendix IV PLC state
+    /// update (clause IV.6.1.4 of the staged 2012 Recommendation:
+    /// `SL = yl(L)`, `SZL = yl(L)/2`), which sets the predictor
+    /// *outputs* for the first sample after an erasure rather than any
+    /// stored delay-line value.
+    pub(crate) pending_prediction: Option<(i32, i32)>,
 }
 
 impl SubBandState {
@@ -103,6 +110,7 @@ impl SubBandState {
             detl: 32,
             nbpl_cap: 18432,
             detl_reset: 32,
+            pending_prediction: None,
         }
     }
 
@@ -119,6 +127,7 @@ impl SubBandState {
             detl: 8,
             nbpl_cap: 22528,
             detl_reset: 8,
+            pending_prediction: None,
         }
     }
 
@@ -134,6 +143,7 @@ impl SubBandState {
         self.bl = [0; 7];
         self.nbl = 0;
         self.detl = self.detl_reset;
+        self.pending_prediction = None;
     }
 
     /// Compute the predicted signal `s_L` (eq 3-23) and the

@@ -70,6 +70,7 @@ mod aux_data;
 mod conformance;
 mod decoder;
 mod encoder;
+pub mod plc;
 mod predictor;
 #[cfg(test)]
 mod robustness;
@@ -80,6 +81,7 @@ pub mod transmission;
 pub use aux_data::{aux_bit_rate_kbps, aux_bits_per_octet, DataExtractor, DataInserter};
 pub use decoder::{Decoder, Mode};
 pub use encoder::Encoder;
+pub use plc::PlcDecoder;
 
 use oxideav_core::RuntimeContext;
 
