@@ -17,6 +17,13 @@
 //!   and the symmetric inverse quantizers / pole-zero predictors of
 //!   clauses 4 / 6.2.
 //!
+//! For lossy transport, [`PlcDecoder`] extends the receive path with
+//! the low-complexity packet-loss concealment of Appendix IV of the
+//! staged 2012 consolidated Recommendation (LPC-based pitch
+//! repetition, class-driven adaptive muting, higher-band repetition
+//! with a remove-DC post filter, ADPCM state updates and recovery
+//! cross-fade) on 10-ms or 20-ms frames.
+//!
 //! Three bit-rate modes are supported (Table 1, clause 1.3):
 //!
 //! | Mode | Audio-coding rate | Lower sub-band code width | Aux-data |
@@ -34,7 +41,9 @@
 //!
 //! The implementation derives exclusively from the staged
 //! `docs/audio/g722/T-REC-G.722-198811-S.pdf` (the Blue-Book base
-//! edition of the Recommendation). Tables 4, 11, 14, 15-ILB, 16,
+//! edition of the Recommendation) and, for the Appendix IV
+//! packet-loss concealment, the staged 2012 consolidated edition
+//! `docs/audio/g722/T-REC-G.722-201209-I.pdf`. Tables 4, 11, 14, 15-ILB, 16,
 //! 17, 18, 19, 20 and 21 of the Recommendation were transcribed by
 //! hand from the printed normative tables; see `src/tables.rs` for
 //! the per-table provenance citation. No external source code, no
