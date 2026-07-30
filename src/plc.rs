@@ -992,6 +992,125 @@ mod tests {
     }
 
     #[test]
+    fn muting_schedules_match_the_figure_iv6_iv7_trajectories() {
+        // Figure IV.6 / IV.7 (clause IV.6.1.2.7): under the general
+        // (20-ms / consecutive) schedule the gain must reach zero by
+        // ~80 samples for TRANSIENT, ~160 for VUV_TRANSITION and ~300
+        // for the other classes, and never rebound.
+        for (class, zero_by) in [
+            (Class::Transient, 81),
+            (Class::VuvTransition, 165),
+            (Class::WeaklyVoiced, 305),
+        ] {
+            let p = class.muting_params();
+            let mut m = MuteState { g: Q15_ONE, cnt: 0 };
+            let mut reached = None;
+            let mut prev = Q15_ONE;
+            for n in 0..400 {
+                let g = m.step_general(&p);
+                assert!(g <= prev, "{class:?}: gain rebounded at {n}");
+                assert!((0..=Q15_ONE).contains(&g));
+                if g == 0 && reached.is_none() {
+                    reached = Some(n);
+                }
+                prev = g;
+            }
+            let reached = reached.expect("gain must reach zero");
+            assert!(
+                reached <= zero_by,
+                "{class:?}: gain reached zero at {reached}, expected <= {zero_by}"
+            );
+            // The hard cutoff of the schedule: once cnt >= 320 the
+            // gain is forced to zero outright.
+            assert_eq!(m.g, 0);
+        }
+        // First-erased-10-ms special case, TRANSIENT: fac1 = 409 for
+        // 80 samples leaves the printed near-zero residue 32767 -
+        // 80*409 = 47, and the cf10 = 0 extra keeps it there.
+        let p = Class::Transient.muting_params();
+        let mut m = MuteState { g: Q15_ONE, cnt: 0 };
+        for _ in 0..80 {
+            m.step_first10(p.fac1);
+        }
+        assert_eq!(m.g, 47);
+        for _ in 0..80 {
+            m.step_first10(p.cf10);
+        }
+        assert_eq!(m.g, 47);
+    }
+
+    #[test]
+    fn hpost_removes_a_dc_step() {
+        // Clause IV.6.2.3: Hpost is a 50-Hz remove-DC filter. A
+        // constant input must decay towards zero (a latched rounding
+        // residue of at most one LSB is the fixed-point floor).
+        let mut plc = PlcDecoder::new(Mode::Mode1, 160);
+        let mut last = i32::MAX;
+        for n in 0..400 {
+            let v = plc.hpost_step(1000);
+            if n == 0 {
+                // First sample passes the full step scaled by b0.
+                assert!((880..=900).contains(&v), "step response head {v}");
+            }
+            last = v;
+        }
+        // The per-term round-to-nearest recursion latches at
+        // (3207*2 + 2048) >> 12 = 2, so the reachable floor is two
+        // LSB of DC on this step size.
+        assert!(last.abs() <= 2, "DC not removed: residue {last}");
+    }
+
+    #[test]
+    fn voiced_concealment_continues_a_periodic_signal() {
+        // Feed a strongly periodic lower-band signal (pitch well
+        // inside the 288-sample window) through good frames, then
+        // conceal: the classifier must pick a pitch that keeps the
+        // extrapolation aligned with the true continuation.
+        let period = 57usize; // odd, in range after refinement
+                              // Build a periodic 16-kHz waveform and encode it so the
+                              // decoder history is realistic.
+        let mut enc = crate::Encoder::new();
+        let pcm: Vec<i16> = (0..4800)
+            .map(|i| {
+                let ph = (i % (2 * period)) as f64 / (2 * period) as f64;
+                ((ph * 2.0 * core::f64::consts::PI).sin() * 6000.0) as i16
+            })
+            .collect();
+        let octets = enc.encode_pcm16(&pcm);
+        let mut plc = PlcDecoder::new(Mode::Mode1, 160);
+        let mut decoded: Vec<i16> = Vec::new();
+        for f in octets.chunks(80) {
+            if f.len() == 80 {
+                decoded.extend(plc.decode_good_frame(f));
+            }
+        }
+        let concealed = plc.conceal_erased_frame();
+        // The concealed frame must correlate strongly with the
+        // continuation of the periodic waveform: compare against the
+        // last decoded period repeated.
+        let hist = &decoded[decoded.len() - 2 * period..];
+        let mut num = 0f64;
+        let mut d1 = 0f64;
+        let mut d2 = 0f64;
+        for i in 0..160 {
+            let a = f64::from(concealed[i]);
+            let b = f64::from(hist[i % (2 * period)]);
+            num += a * b;
+            d1 += a * a;
+            d2 += b * b;
+        }
+        let corr = num / (d1.sqrt() * d2.sqrt()).max(1.0);
+        // The Table IV.3 muting walks the gain down through the frame,
+        // so the correlation against the unmuted continuation sits
+        // below unity even for a perfect pitch; an octave/period error
+        // would collapse it far further.
+        assert!(
+            corr > 0.7,
+            "voiced concealment lost the waveform periodicity: corr {corr:.3}"
+        );
+    }
+
+    #[test]
     fn erasure_from_reset_state_is_silent() {
         // ovfl.bst opens with an erased frame: concealing from the
         // reset state must extrapolate silence, not noise.
