@@ -75,11 +75,13 @@
 #![warn(missing_docs)]
 
 mod aux_data;
+mod basicop;
 #[cfg(test)]
 mod conformance;
 mod decoder;
 mod encoder;
 pub mod plc;
+mod plc_tables;
 mod predictor;
 #[cfg(test)]
 mod robustness;
