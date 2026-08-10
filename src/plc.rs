@@ -922,4 +922,83 @@ mod tests {
         let out = plc.conceal_erased_frame();
         assert!(out.iter().all(|&s| s == 0), "reset-state concealment");
     }
+
+    /// Prime a decoder with a pseudo-random-speech-shaped stream and
+    /// return it (shared by the continuation tests below).
+    fn primed(frame_samples: usize) -> PlcDecoder {
+        let mut enc = crate::Encoder::new();
+        let pcm: Vec<i16> = (0..4800)
+            .map(|i| {
+                let t = i as f64 / 16_000.0;
+                let v = (2.0 * core::f64::consts::PI * 220.0 * t).sin() * 7000.0
+                    + (2.0 * core::f64::consts::PI * 1_760.0 * t).sin() * 2500.0;
+                v as i16
+            })
+            .collect();
+        let octets = enc.encode_pcm16(&pcm);
+        let mut plc = PlcDecoder::new(Mode::Mode1, frame_samples);
+        for f in octets.chunks(frame_samples / 2) {
+            if f.len() == frame_samples / 2 {
+                let _ = plc.decode_good_frame(f);
+            }
+        }
+        plc
+    }
+
+    #[test]
+    fn long_erasure_run_mutes_to_the_floor() {
+        // Table IV.3 / clause IV.6.1.2.7: once cnt_mute reaches 320
+        // the gain is forced to zero outright, so a long consecutive
+        // erasure run must decay to (near-)silence through the
+        // clause IV.6.1.3 continuation — the lower band to exactly
+        // zero, the higher band down to the eq IV-19 post filter's
+        // ±2 LSB rounding latch, QMF-scaled.
+        for frame_samples in [160, 320] {
+            let mut plc = primed(frame_samples);
+            let mut last = Vec::new();
+            for _ in 0..12 {
+                last = plc.conceal_erased_frame();
+            }
+            let peak = last.iter().map(|&s| i32::from(s).abs()).max().unwrap();
+            assert!(
+                peak <= 8,
+                "{frame_samples}-sample frames: erasure run not muted (peak {peak})"
+            );
+        }
+    }
+
+    #[test]
+    fn consecutive_erasures_continue_without_frame_seams() {
+        // Clause IV.6.1.3: each further erased frame starts with the
+        // previous frame's extra synthesis, so the concealed signal
+        // must be seamless across frame boundaries — the first-order
+        // difference at each boundary must be no larger than the
+        // biggest step inside the neighbouring frames (a restarted
+        // extrapolation shows up as a boundary spike).
+        let mut plc = primed(160);
+        let mut all: Vec<i16> = Vec::new();
+        for _ in 0..4 {
+            all.extend(plc.conceal_erased_frame());
+        }
+        let diffs: Vec<i32> = all
+            .windows(2)
+            .map(|w| (i32::from(w[1]) - i32::from(w[0])).abs())
+            .collect();
+        for b in [160usize, 320, 480] {
+            let seam = diffs[b - 1];
+            // Local slope scale: the largest step in the 40 samples
+            // on either side of the boundary, seam excluded.
+            let local = diffs[b - 41..b - 1]
+                .iter()
+                .chain(diffs[b..b + 40].iter())
+                .copied()
+                .max()
+                .unwrap()
+                .max(1);
+            assert!(
+                seam <= 4 * local,
+                "seam at boundary {b}: step {seam} vs local scale {local}"
+            );
+        }
+    }
 }

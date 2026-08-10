@@ -43,10 +43,15 @@
 //! `docs/audio/g722/T-REC-G.722-198811-S.pdf` (the Blue-Book base
 //! edition of the Recommendation) and, for the Appendix IV
 //! packet-loss concealment, the staged 2012 consolidated edition
-//! `docs/audio/g722/T-REC-G.722-201209-I.pdf`. Tables 4, 11, 14, 15-ILB, 16,
+//! `docs/audio/g722/T-REC-G.722-201209-I.pdf` together with the
+//! staged Appendix IV numeric data tables
+//! (`docs/audio/g722/tables/appendix-IV-*` → `src/plc_tables.rs`) and
+//! the staged ITU-T G.191 STL basic-operator semantics notes
+//! (`docs/audio/g722/basic-operators/` → `src/basicop.rs`). Tables 4,
+//! 11, 14, 15-ILB, 16,
 //! 17, 18, 19, 20 and 21 of the Recommendation were transcribed by
-//! hand from the printed normative tables; see `src/tables.rs` for
-//! the per-table provenance citation. No external source code, no
+//! hand from the printed normative tables; see `src/tables.rs` and
+//! `src/plc_tables.rs` for the per-table provenance citations. No external source code, no
 //! external reference implementation, and no online resources were
 //! consulted during the rebuild. Both directions are additionally
 //! **bit-exact against the ITU-T G.191 G.722 conformance corpus**
