@@ -18,28 +18,35 @@
 //!
 //! ## Numerical conventions
 //!
-//! The Recommendation publishes the concealment algorithm as
-//! mathematical prose (clauses IV.5 / IV.6) and notes that it "can be
-//! implemented in several other fashions" (clause IV.7). This
-//! implementation follows the prose: the signal path (extrapolation,
-//! muting, filters, state updates) runs in the same saturating 16-bit
-//! integer arithmetic as the base codec (clause 5.2 operators), while
-//! the analysis stage (LP / LTP / classification), whose only outputs
-//! are the coefficients `a_i`, the pitch delay `T0`, the correlation
-//! `Rmax` and the derived class, is computed in double precision from
-//! the printed equations (IV-1 … IV-11).
+//! Clause IV.7 makes the 16-bit fixed-point realisation normative
+//! over the prose of clauses IV.5 / IV.6. Both the signal path
+//! (extrapolation, muting, filters, state updates) and the analysis
+//! stage (LP / LTP / classification) therefore run entirely in the
+//! ITU-T G.191 STL basic-operator arithmetic ([`crate::basicop`],
+//! semantics from the staged `docs/audio/g722/basic-operators/`
+//! notes) on the staged Appendix IV Q-format data tables
+//! ([`crate::plc_tables`], from `docs/audio/g722/tables/`). The
+//! fixed-point analysis machinery lives in [`crate::plc_analysis`].
 //!
 //! ## Provenance
 //!
 //! Clause / equation / figure citations refer to Appendix IV of the
 //! staged 2012 consolidated Recommendation. The autocorrelation
-//! conditioning follows the appendix's own description (clause
-//! IV.6.1.2.1): a 60-Hz bandwidth-expansion lag window and a 40-dB
-//! white-noise correction applied to `r(0)`. Validation against the
-//! staged Appendix IV test vectors lives in `tests/appendix_iv_plc.rs`.
+//! conditioning uses the staged double-precision lag-window pair
+//! (60-Hz bandwidth expansion with the 40-dB white-noise correction
+//! folded in). Validation against the staged Appendix IV test vectors
+//! lives in `tests/appendix_iv_plc.rs`. Two pieces remain outside the
+//! staged material and are documented at their sites: the exact
+//! instruction sequence of the reference realisation (only the
+//! operator semantics and the data tables are staged) and the clause
+//! IV.6.1.2.3 "procedure favouring the smaller pitch values"
+//! (`docs/audio/g722/appendix-IV-ltp-smaller-pitch-gap.md`).
 
+use crate::basicop::{l_mac, l_mult, mult_r, round_fx};
 use crate::decoder::{HigherDecoderState, LowerDecoderState, Mode, ReceiveQmf};
-use crate::predictor::{add, mul, sub};
+use crate::plc_analysis::{
+    self, hpre_step, lp_analysis, ltp_analysis, residual_step, synthesis_step, LP_ORDER,
+};
 
 extern crate alloc;
 use alloc::vec::Vec;
@@ -53,9 +60,11 @@ const ZL_HISTORY: usize = 297;
 /// IV.6.2.2): 160 samples.
 const ZH_HISTORY: usize = 160;
 
-/// LP order of the lower-band analysis/synthesis filters (clause
-/// IV.6.1.2.1, eq IV-1).
-const LP_ORDER: usize = 8;
+/// Q15 rendering of the Figure IV.4 voicing threshold: "Rmax > 0.7"
+/// holds for a Q15 correlation strictly above `round(0.7 × 32768) −
+/// 1 = 22937`. The exact fixed-point constant the reference compares
+/// against is not staged; this rendering is the assumption in use.
+const RMAX_VOICED_Q15: i32 = 22_937;
 
 /// Number of sub-band samples over which the higher-band post filter
 /// stays engaged after the last erasure (clause IV.6.2.3: "the first
@@ -182,6 +191,29 @@ struct Analysis {
     class: Class,
 }
 
+/// Residual-extrapolation continuation state, carried across the
+/// erased frames of one erasure run (clause IV.6.1.3: consecutive bad
+/// frames keep the first frame's parameters and *continue* the
+/// synthesis — only the last L samples of each further frame are newly
+/// generated, the first 80 being the previous frame's cross-fade
+/// extra).
+#[derive(Debug, Clone)]
+struct ConcealState {
+    /// The last `T0 + 2` extrapolated residual samples, ending at
+    /// absolute index `next_abs − 1` (initially the modified
+    /// repetition period `e(−T0−1 … −1)` of eqs IV-12/IV-13). The
+    /// generation rules (eqs IV-14 / IV-15) only ever reach back
+    /// `T0 + 1` samples, so this window is sufficient.
+    e_recent: Vec<i32>,
+    /// Absolute index (from the start of the erasure run) of the next
+    /// residual sample to generate; the eq IV-15 jitter parity
+    /// `(−1)^n` follows this continuing index.
+    next_abs: usize,
+    /// Eq IV-16 synthesis-filter memory: yl(n−1) … yl(n−8) of the
+    /// *muted* output, continued across frames.
+    mem: [i32; LP_ORDER],
+}
+
 /// G.722 decoder with the Appendix IV packet-loss concealment.
 ///
 /// Frames are decoded through [`PlcDecoder::decode_good_frame`] /
@@ -209,6 +241,9 @@ pub struct PlcDecoder {
     prev_erased: bool,
     /// Consecutive-erasure analysis snapshot (clause IV.6.1.3).
     analysis: Option<Analysis>,
+    /// Residual/synthesis continuation for the current erasure run
+    /// (clause IV.6.1.3).
+    conceal: Option<ConcealState>,
     /// Muted extrapolated lower-band signal generated past the frame
     /// end for cross-fading, yl(L..L+79) (clause IV.6.1.2.5).
     yl_extra: [i32; XFADE],
@@ -247,6 +282,7 @@ impl PlcDecoder {
             mute_hb: MuteState { g: Q15_ONE, cnt: 0 },
             prev_erased: false,
             analysis: None,
+            conceal: None,
             yl_extra: [0; XFADE],
             hpost_mem: (0, 0),
             post_hold: 0,
@@ -282,12 +318,14 @@ impl PlcDecoder {
 
             // Cross-fade (Table IV.4): during the first 10 ms after
             // the last erasure the ADPCM output is faded in against
-            // the extrapolated signal.
+            // the extrapolated signal. The Bartlett ramp is carried in
+            // Q15 and both legs land through one rounded L_mac
+            // accumulation.
             let zl = if do_xfade && n < XFADE {
                 let n_i = n as i32;
                 let w_up = (n_i * Q15_ONE) / 79;
                 let w_dn = Q15_ONE - w_up;
-                add(mul(w_up, xl), mul(w_dn, self.yl_extra[n]))
+                round_fx(l_mac(l_mult(w_up, xl), w_dn, self.yl_extra[n]))
             } else {
                 xl
             };
@@ -312,6 +350,7 @@ impl PlcDecoder {
         self.mute_hb.reset();
         self.prev_erased = false;
         self.analysis = None;
+        self.conceal = None;
         out
     }
 
@@ -323,17 +362,27 @@ impl PlcDecoder {
 
         // ---- Lower band ----------------------------------------
         if first_erased {
-            self.analysis = Some(self.analyse_lower());
+            let analysis = self.analyse_lower();
+            // Residual of the past signal through A(z) (eq IV-3) and
+            // the modified repetition period (eqs IV-12 / IV-13) seed
+            // the continuation state for this erasure run.
+            let e_hist = self.residual_history(&analysis.a);
+            let e_recent = build_repetition_period(&analysis, &e_hist);
+            let mem = core::array::from_fn(|i| self.zl(-1 - i as isize));
+            self.conceal = Some(ConcealState {
+                e_recent,
+                next_abs: 0,
+                mem,
+            });
+            self.analysis = Some(analysis);
         }
         let analysis = self.analysis.clone().expect("analysis set above");
 
-        // Residual of the past signal through A(z) (eq IV-3), for the
-        // repetition period plus the jitter/modification margin.
-        let e_hist = self.residual_history(&analysis.a);
-
         // Extrapolate the residual and synthesise yl (muted), plus
-        // the 80-sample cross-fade extension.
-        let (yl, yl_extra) = self.synthesise_lower(&analysis, &e_hist, first_erased);
+        // the 80-sample cross-fade extension (clauses IV.6.1.2.5 –
+        // IV.6.1.2.7 for the first erased frame; clause IV.6.1.3
+        // continuation afterwards).
+        let (yl, yl_extra) = self.synthesise_lower(&analysis, first_erased);
 
         // ---- Higher band (clause IV.6.2.2) ---------------------
         let th = if analysis.class == Class::Voiced {
@@ -349,20 +398,22 @@ impl PlcDecoder {
             for n in 0..l {
                 let idx = ring.len() - th;
                 let sample = ring[idx];
-                let g = if first_erased && l == 80 {
-                    self.mute_hb.step_first10(p.fac1)
-                } else {
-                    self.mute_hb.step_general(&p)
-                };
-                let muted = sat16((g * sample + 16_384) >> 15);
+                // Clause IV.6.2.2.2: the higher band runs the
+                // clause IV.6.1.2.7 muting on its own counter/factor
+                // pair. It uses the threshold ("other cases")
+                // schedule from the first erased frame on — during
+                // the first 80 samples cnt_mute_hb is still below
+                // every threshold, so the trajectory matches the
+                // lower band's flat first-10-ms schedule, and the
+                // vector scores pin this reading over a mirrored
+                // first-10-ms special case.
+                let g = self.mute_hb.step_general(&p);
+                let muted = mult_r(g, sample);
                 // uh = yh; vh = Hpost(uh); zh = vh (clause IV.6.2.3).
                 let vh = self.hpost_step(muted);
                 yh.push(vh);
                 ring.push(vh);
                 let _ = n;
-            }
-            if first_erased && l == 80 {
-                self.mute_hb.cnt += 80 * p.inc_mute;
             }
         }
         self.post_hold = POST_FILTER_HOLD;
@@ -413,18 +464,12 @@ impl PlcDecoder {
     // ------------------------------------------------------------
 
     /// One sample of Hpost(z) = (7303/8192)(1 - z^-1) /
-    /// (1 - (3207/4096) z^-1).
-    ///
-    /// The eq IV-19 coefficients are applied at their printed
-    /// precisions (numerator Q13, denominator Q12) with
-    /// round-to-nearest on each term — the convention that best
-    /// matches the staged Appendix IV vectors among the rounding /
-    /// width variants surveyed (see `tests/appendix_iv_plc.rs` for the
-    /// residual-divergence characterisation).
+    /// (1 - (3207/4096) z^-1), on the eq IV-19 constants held in Q13
+    /// (`plc_tables::{B_HP_POST, A_HP_POST}`) through the basic-
+    /// operator chain of [`plc_analysis::hpost_step`].
     fn hpost_step(&mut self, uh: i32) -> i32 {
         let (prev_in, prev_out) = self.hpost_mem;
-        let diff = sub(uh, prev_in);
-        let vh = sat16(((7303 * diff + 4096) >> 13) + ((3207 * prev_out + 2048) >> 12));
+        let vh = plc_analysis::hpost_step(uh, prev_in, prev_out);
         self.hpost_mem = (uh, vh);
         vh
     }
@@ -435,37 +480,43 @@ impl PlcDecoder {
 
     fn analyse_lower(&self) -> Analysis {
         // --- LP analysis (clause IV.6.1.2.1) -------------------
-        let a_f = self.lp_analysis();
-        let mut a = [0_i32; LP_ORDER];
-        for (q, &f) in a.iter_mut().zip(a_f.iter()) {
-            *q = (f * 4096.0).round() as i32;
+        // Staged Q15 window + conditioned autocorrelation +
+        // double-precision Levinson-Durbin (`plc_analysis`).
+        let mut last80 = [0_i32; 80];
+        for (k, slot) in last80.iter_mut().enumerate() {
+            *slot = self.zl(k as isize - 80);
         }
+        let a = lp_analysis(&last80);
 
         // --- Pre-processing (clause IV.6.1.2.2, eq IV-4) -------
-        // zlpre(n), n = -288..-1 through Hpre(z) =
-        // (1 - z^-1)/(1 - (123/128) z^-1); memory starts at zero.
+        // zlpre(n), n = -288..-1 through Hpre(z) on the staged Q14
+        // constants; memory starts at zero.
         let mut zlpre = [0_i32; 288];
         let mut prev_in = 0_i32;
         let mut prev_out = 0_i32;
         for (k, slot) in zlpre.iter_mut().enumerate() {
             let x = self.zl(k as isize - 288);
-            let y = add(sub(x, prev_in), mul(31_488, prev_out));
+            let y = hpre_step(x, prev_in, prev_out);
             prev_in = x;
             prev_out = y;
             *slot = y;
         }
 
         // --- LTP analysis (clause IV.6.1.2.3) ------------------
-        let (t0_raw, rmax) = self.ltp_analysis(&zlpre);
+        let (t0_raw, rmax) = ltp_analysis(&zlpre);
 
         // --- Classification (clause IV.6.1.2.4, Figure IV.4) ---
         let nbl = self.lower.log_scale_factor();
         let nbh = self.higher.log_scale_factor();
-        let zcr = self.zero_crossing_rate();
+        let mut zhist = [0_i32; 81];
+        for (k, slot) in zhist.iter_mut().enumerate() {
+            *slot = self.zl(k as isize - 81);
+        }
+        let zcr = plc_analysis::zero_crossing_rate(&zhist);
 
         let mut t0 = t0_raw;
         let mut class = Class::WeaklyVoiced;
-        if rmax > 0.7 {
+        if rmax > RMAX_VOICED_Q15 {
             class = Class::Voiced;
             if nbh > nbl {
                 class = Class::WeaklyVoiced;
@@ -473,8 +524,16 @@ impl PlcDecoder {
         } else if nbh > nbl {
             class = Class::VuvTransition;
         }
+        // The zcr test is applied to the running class regardless of
+        // the earlier outcomes (the Figure IV.4 arrows rejoin the
+        // spine): of the two defensible flowchart readings, this one
+        // scores measurably closer to the reference PLC vectors
+        // (tests/appendix_iv_plc.rs).
         if zcr >= 20 {
             class = Class::Unvoiced;
+            // "if class is set to UNVOICED, the pitch delay T0 may be
+            // modified to avoid artefacts due to low-pitch delay
+            // values" (clause IV.6.1.2.4 / Figure IV.4).
             if t0 < 32 {
                 t0 *= 2;
             }
@@ -496,175 +555,12 @@ impl PlcDecoder {
         Analysis { a, t0, class }
     }
 
-    /// Eighth-order LP analysis on the last 10 ms of zl (clause
-    /// IV.6.1.2.1): asymmetrical Hamming window (eq IV-2),
-    /// autocorrelation with 60-Hz bandwidth expansion and 40-dB
-    /// white-noise correction, Levinson-Durbin recursion. Returns
-    /// a_1..a_8 of eq IV-1 as doubles.
-    fn lp_analysis(&self) -> [f64; LP_ORDER] {
-        // Window (eq IV-2) over zl(-80..-1).
-        let mut wx = [0.0_f64; 80];
-        for (k, slot) in wx.iter_mut().enumerate() {
-            let n = k as isize - 80; // n = -80..-1
-            let w = lpc_window(n);
-            *slot = w * f64::from(self.zl(n));
-        }
-        let mut r = [0.0_f64; LP_ORDER + 1];
-        for (kk, slot) in r.iter_mut().enumerate() {
-            let mut acc = 0.0;
-            for j in kk..80 {
-                acc += wx[j] * wx[j - kk];
-            }
-            *slot = acc;
-        }
-        conditioned_levinson(&mut r)
-    }
-
-    /// LTP open-loop pitch analysis (clause IV.6.1.2.3, Figure IV.3).
-    /// Returns (T0, Rmax).
-    fn ltp_analysis(&self, zlpre: &[i32; 288]) -> (usize, f64) {
-        // Low-pass + 4:1 decimation (eq IV-5). Filter memory starts
-        // at zero; t(n) is the filter output at the last sample of
-        // each block of four.
-        const FIR: [i64; 9] = [3692, 6190, 8525, 10186, 10787, 10186, 8525, 6190, 3692];
-        let mut t = [0.0_f64; 72];
-        for (k, slot) in t.iter_mut().enumerate() {
-            // t(k) taps zlpre at m = 4k+3 (the last sample of block k).
-            let m = 4 * k + 3;
-            let mut acc: i64 = 0;
-            for (j, &h) in FIR.iter().enumerate() {
-                let idx = m as isize - j as isize;
-                let x = if idx >= 0 { zlpre[idx as usize] } else { 0 };
-                acc += h * i64::from(x);
-            }
-            *slot = (acc >> 16) as f64;
-        }
-
-        // 2nd-order LP of t weighted by gamma = 0.94 (clause
-        // IV.6.1.2.3). The window is the last 72 samples of wlp.
-        let (b1, b2) = {
-            let mut wt = [0.0_f64; 72];
-            for (k, slot) in wt.iter_mut().enumerate() {
-                let n = k as isize - 72; // n = -72..-1
-                *slot = lpc_window(n) * t[k];
-            }
-            let mut r = [0.0_f64; 3];
-            for (kk, slot) in r.iter_mut().enumerate() {
-                let mut acc = 0.0;
-                for j in kk..72 {
-                    acc += wt[j] * wt[j - kk];
-                }
-                *slot = acc;
-            }
-            let a = conditioned_levinson_order2(&mut r);
-            // B(z) = 1 - b1 z^-1 - b2 z^-2 while the recursion
-            // returns A(z) = 1 + a1 z^-1 + a2 z^-2.
-            (-a[0], -a[1])
-        };
-        const GAMMA: f64 = 0.94;
-        let mut tw = [0.0_f64; 72];
-        for k in 0..72 {
-            let t1 = if k >= 1 { t[k - 1] } else { 0.0 };
-            let t2 = if k >= 2 { t[k - 2] } else { 0.0 };
-            tw[k] = t[k] - GAMMA * b1 * t1 - GAMMA * GAMMA * b2 * t2;
-        }
-
-        // Normalized cross-correlation (eq IV-6) over the last 35
-        // weighted-decimated samples: j = -35..-1 maps to tw[37..72].
-        let r_at = |i: usize| -> f64 {
-            let mut num = 0.0;
-            let mut d1 = 0.0;
-            let mut d2 = 0.0;
-            for j in 0..35 {
-                let x = tw[37 + j];
-                let y = tw[37 + j - i];
-                num += x * y;
-                d1 += x * x;
-                d2 += y * y;
-            }
-            let den = d1.max(d2);
-            if den <= 0.0 {
-                0.0
-            } else {
-                num / den
-            }
-        };
-        let mut tds: usize = 18; // initialization (clause IV.6.1.2.3 a).
-        let r_vals: Vec<f64> = (0..=35)
-            .map(|i| if i == 0 { 0.0 } else { r_at(i) })
-            .collect();
-        if (1..=35).any(|i| r_vals[i] < 0.0) {
-            let i0 = (1..=35).find(|&i| r_vals[i] < 0.0).unwrap();
-            let i1 = i0.max(4);
-            let mut best = i1;
-            for i in i1..=35 {
-                if r_vals[i] > r_vals[best] {
-                    best = i;
-                }
-            }
-            tds = best;
-        }
-
-        // Refinement in the pre-processed domain (eqs IV-8 / IV-9):
-        // T = 4 Tds, search i = T-2 .. T+2 with a window of length T.
-        let t_mid = 4 * tds;
-        let big_r = |i: usize| -> f64 {
-            let win = t_mid;
-            let mut num = 0.0;
-            let mut d1 = 0.0;
-            let mut d2 = 0.0;
-            for jj in 0..win {
-                // j = -T..-1 maps to zlpre[288 - T + jj].
-                let x = f64::from(zlpre[288 - win + jj]);
-                let yidx = 288 - win + jj - i;
-                let y = f64::from(zlpre[yidx]);
-                num += x * y;
-                d1 += x * x;
-                d2 += y * y;
-            }
-            let den = d1.max(d2);
-            if den <= 0.0 {
-                0.0
-            } else {
-                num / den
-            }
-        };
-        let lo = t_mid.saturating_sub(2).max(1);
-        let hi = (t_mid + 2).min(288 - t_mid);
-        let mut t0 = lo;
-        let mut best = f64::MIN;
-        for i in lo..=hi {
-            let v = big_r(i);
-            if v > best {
-                best = v;
-                t0 = i;
-            }
-        }
-        (t0, best)
-    }
-
-    /// Zero-crossing rate of zl(-80..-1) (eq IV-10).
-    fn zero_crossing_rate(&self) -> u32 {
-        let mut zcr = 0;
-        for n in -80..0_isize {
-            if self.zl(n) <= 0 && self.zl(n - 1) > 0 {
-                zcr += 1;
-            }
-        }
-        zcr
-    }
-
     /// Residual history e(n), n = -289..-1 (eq IV-3), returned as a
     /// slice indexed by `[289 + n]`.
     fn residual_history(&self, a: &[i32; LP_ORDER]) -> Vec<i32> {
         let mut e = Vec::with_capacity(289);
         for n in -289..0_isize {
-            let mut acc: i64 = 0;
-            for (i, &ai) in a.iter().enumerate() {
-                acc += i64::from(ai) * i64::from(self.zl(n - 1 - i as isize));
-            }
-            let pred = (acc >> 12) as i32;
-            e.push(add(self.zl(n), sat16(pred)));
+            e.push(residual_step(a, self.zl(n), |i| self.zl(n - i as isize)));
         }
         e
     }
@@ -674,12 +570,12 @@ impl PlcDecoder {
     fn count_peaks(&self, e_hist: &[i32], t0: usize) -> u32 {
         let mut cnt = 0;
         for n in -(t0 as isize)..0 {
-            let cur = e_hist[(289 + n) as usize].abs() >> 2;
+            let cur = crate::basicop::shr(crate::basicop::abs_s(e_hist[(289 + n) as usize]), 2);
             let mut prev_max = 0;
             for i in -2..=2_isize {
                 let idx = 289 + n - t0 as isize + i;
                 if (0..289).contains(&idx) {
-                    prev_max = prev_max.max(e_hist[idx as usize].abs());
+                    prev_max = prev_max.max(crate::basicop::abs_s(e_hist[idx as usize]));
                 }
             }
             if cur > prev_max {
@@ -694,96 +590,57 @@ impl PlcDecoder {
     // IV.6.1.3)
     // ------------------------------------------------------------
 
-    /// Extrapolate the residual, run the synthesis filter and apply
-    /// the adaptive muting; returns (yl frame, yl cross-fade extra).
+    /// Synthesise the lower band for one erased frame: extrapolate
+    /// the residual (eqs IV-14 / IV-15, continuing across consecutive
+    /// erasures per clause IV.6.1.3), run the eq IV-16 synthesis
+    /// filter and apply the eq IV-17 adaptive muting. Returns
+    /// (yl frame, yl cross-fade extra).
+    ///
+    /// For the first erased frame the whole span `yl(0 … L+79)` is
+    /// newly generated; for every further erased frame `yl(0 … 79)` is
+    /// the previous frame's extra synthesis and only the last `L`
+    /// samples are newly generated — so the muting factor advances by
+    /// exactly the number of newly synthesised samples, and the
+    /// residual pattern, the jitter parity and the synthesis-filter
+    /// memory all continue from the [`ConcealState`].
     fn synthesise_lower(
         &mut self,
         analysis: &Analysis,
-        e_hist: &[i32],
         first_erased: bool,
     ) -> (Vec<i32>, [i32; XFADE]) {
         let l = self.l;
-        let t0 = analysis.t0;
         let p = analysis.class.muting_params();
 
-        // Repetition-period residual, modified per eq IV-12 when the
-        // class is not VOICED.
-        let mut rep: Vec<i32> = Vec::with_capacity(t0 + 1);
-        // Keep one jitter sample before the period (index -T0-1).
-        let jitter_pre = e_hist[289 - t0 - 1];
-        rep.push(jitter_pre);
-        for n in -(t0 as isize)..0 {
-            let raw = e_hist[(289 + n) as usize];
-            let v = if analysis.class == Class::Voiced {
-                raw
+        let count = if first_erased { l + XFADE } else { l };
+        let first10 = first_erased && l == 80;
+        let mut fresh: Vec<i32> = Vec::with_capacity(count);
+        let mut st = self.conceal.take().expect("conceal state seeded");
+        for n in 0..count {
+            // Residual continuation (eqs IV-14 / IV-15): reach back
+            // T0 samples, ±1 alternating when the class is not
+            // VOICED; `e_recent` ends at absolute index next_abs − 1
+            // and always covers the reach-back window.
+            let abs = st.next_abs as isize;
+            let m = if analysis.class == Class::Voiced {
+                abs - analysis.t0 as isize
             } else {
-                let mut prev_max = 0;
-                for i in -2..=2_isize {
-                    let idx = 289 + n - t0 as isize + i;
-                    if (0..289).contains(&idx) {
-                        prev_max = prev_max.max(e_hist[idx as usize].abs());
-                    }
-                }
-                let mag = raw.abs().min(prev_max);
-                if raw < 0 {
-                    -mag
-                } else {
-                    mag
-                }
+                let j = if abs % 2 == 0 { 1 } else { -1 };
+                abs - analysis.t0 as isize + j
             };
-            rep.push(v);
-        }
-        // rep[1 + k] = e(-T0 + k); rep[0] = e(-T0 - 1).
-
-        // Extrapolated residual e(0..count-1) via pitch repetition
-        // (eqs IV-14 / IV-15); generation extends its own buffer.
-        let count = if first_erased || l == 160 {
-            l + XFADE
-        } else {
-            // Consecutive 10-ms erasure: first 80 samples are copied
-            // from the previous frame's extra synthesis (clause
-            // IV.6.1.3); only L more are newly synthesised — but the
-            // residual indexing continues, so generate the full span
-            // and use the tail.
-            l + XFADE
-        };
-        let mut e_ext: Vec<i32> = Vec::with_capacity(count);
-        {
-            // e(n) for n >= 0: index into the virtual sequence where
-            // e(m) for m in -T0-1..-1 is rep[m + T0 + 1] and generated
-            // samples append after.
-            let at = |e_ext: &Vec<i32>, m: isize| -> i32 {
-                if m >= 0 {
-                    e_ext[m as usize]
-                } else {
-                    rep[(m + t0 as isize + 1) as usize]
-                }
-            };
-            for n in 0..count as isize {
-                let m = if analysis.class == Class::Voiced {
-                    n - t0 as isize
-                } else {
-                    let j = if n % 2 == 0 { 1 } else { -1 };
-                    n - t0 as isize + j
-                };
-                let v = at(&e_ext, m);
-                e_ext.push(v);
+            let base = st.next_abs as isize - st.e_recent.len() as isize;
+            let e_n = st.e_recent[(m - base) as usize];
+            st.e_recent.push(e_n);
+            st.next_abs += 1;
+            if st.e_recent.len() > analysis.t0 + 2 {
+                let excess = st.e_recent.len() - (analysis.t0 + 2);
+                st.e_recent.drain(..excess);
             }
-        }
 
-        // LP synthesis (eq IV-16) + muting (eq IV-17). The filter
-        // memory is the muted output yl; it starts from the stored
-        // reconstruction zl(-1..-8).
-        let mut mem: [i32; LP_ORDER] = core::array::from_fn(|i| self.zl(-1 - i as isize));
-        let mut yl_all: Vec<i32> = Vec::with_capacity(count);
-        for (n, &e_n) in e_ext.iter().enumerate() {
-            let mut acc: i64 = 0;
-            for (i, &ai) in analysis.a.iter().enumerate() {
-                acc += i64::from(ai) * i64::from(mem[i]);
-            }
-            let pred = sat16((acc >> 12) as i32);
-            let ylpre = sub(e_n, pred);
-            let g = if first_erased && l == 80 {
+            // Eq IV-16 synthesis on the continued muted-output
+            // memory, then eq IV-17 muting through the rounding
+            // multiply (`mult_r`, semantics doc §2.2).
+            let ylpre = synthesis_step(&analysis.a, e_n, &st.mem);
+            let g = if first10 {
                 if n < 80 {
                     self.mute_lb.step_first10(p.fac1)
                 } else {
@@ -795,30 +652,30 @@ impl PlcDecoder {
             } else {
                 self.mute_lb.step_general(&p)
             };
-            let yl_n = sat16((g * ylpre + 16_384) >> 15);
-            mem.rotate_right(1);
-            mem[0] = yl_n;
-            yl_all.push(yl_n);
+            let yl_n = mult_r(g, ylpre);
+            st.mem.rotate_right(1);
+            st.mem[0] = yl_n;
+            fresh.push(yl_n);
         }
-        if first_erased && l == 80 {
+        if first10 {
             self.mute_lb.cnt += 80 * p.inc_mute;
         }
+        self.conceal = Some(st);
 
-        let (frame, extra) = if first_erased || l == 160 {
-            let frame = yl_all[..l].to_vec();
-            let mut ex = [0_i32; XFADE];
-            ex.copy_from_slice(&yl_all[l..l + XFADE]);
-            (frame, ex)
+        let mut ex = [0_i32; XFADE];
+        if first_erased {
+            // fresh = yl(0 … L+79).
+            ex.copy_from_slice(&fresh[l..]);
+            fresh.truncate(l);
+            (fresh, ex)
         } else {
-            // Consecutive 10-ms erasure: frame = previous extra;
-            // freshly synthesised span provides the new extra.
+            // fresh = yl(80 … L+79): the frame starts with the
+            // previous extra synthesis (clause IV.6.1.3).
             let mut frame = self.yl_extra.to_vec();
-            frame.truncate(l);
-            let mut ex = [0_i32; XFADE];
-            ex.copy_from_slice(&yl_all[l..l + XFADE]);
+            frame.extend_from_slice(&fresh[..l - XFADE]);
+            ex.copy_from_slice(&fresh[l - XFADE..]);
             (frame, ex)
-        };
-        (frame, extra)
+        }
     }
 
     // ------------------------------------------------------------
@@ -859,91 +716,38 @@ impl PlcDecoder {
     }
 }
 
-/// 16-bit saturation matching the clause 5.2 operators.
-fn sat16(x: i32) -> i32 {
-    x.clamp(-32_768, 32_767)
-}
-
-/// The asymmetrical Hamming LP window of eq IV-2, evaluated at
-/// n = -80..-1.
-fn lpc_window(n: isize) -> f64 {
-    debug_assert!((-80..0).contains(&n));
-    let n = n as f64;
-    if n <= -11.0 {
-        0.54 - 0.46 * (core::f64::consts::PI * (n + 80.0) / 69.0).cos()
-    } else {
-        0.54 + 0.46 * (core::f64::consts::PI * (n + 11.0) / 10.0).cos()
+/// The repetition period seeding an erasure run's residual
+/// extrapolation: `e(−T0−1 … −1)` from the eq IV-3 residual history,
+/// magnitude-limited per eqs IV-12 / IV-13 when the class is not
+/// VOICED (each sample clamped to the largest magnitude in a ±2
+/// neighbourhood one period earlier). `e_hist` is indexed `[289 + n]`
+/// for `n = −289 … −1`.
+fn build_repetition_period(analysis: &Analysis, e_hist: &[i32]) -> Vec<i32> {
+    let t0 = analysis.t0;
+    let mut rep: Vec<i32> = Vec::with_capacity(t0 + 1);
+    rep.push(e_hist[289 - t0 - 1]);
+    for n in -(t0 as isize)..0 {
+        let raw = e_hist[(289 + n) as usize];
+        let v = if analysis.class == Class::Voiced {
+            raw
+        } else {
+            let mut prev_max = 0;
+            for i in -2..=2_isize {
+                let idx = 289 + n - t0 as isize + i;
+                if (0..289).contains(&idx) {
+                    prev_max = prev_max.max(crate::basicop::abs_s(e_hist[idx as usize]));
+                }
+            }
+            let mag = crate::basicop::abs_s(raw).min(prev_max);
+            if raw < 0 {
+                -mag
+            } else {
+                mag
+            }
+        };
+        rep.push(v);
     }
-}
-
-/// Levinson-Durbin with the clause IV.6.1.2.1 conditioning: 40-dB
-/// white-noise correction on r(0) and 60-Hz bandwidth-expansion lag
-/// window. Returns a_1..a_8 of A(z) = 1 + Σ a_i z^-i.
-fn conditioned_levinson(r: &mut [f64; LP_ORDER + 1]) -> [f64; LP_ORDER] {
-    condition_autocorrelation(r);
-    let mut a = [0.0_f64; LP_ORDER];
-    if r[0] <= 0.0 {
-        return a;
-    }
-    let mut err = r[0];
-    for i in 1..=LP_ORDER {
-        let mut acc = r[i];
-        for j in 1..i {
-            acc += a[j - 1] * r[i - j];
-        }
-        let k = -acc / err;
-        let mut new_a = a;
-        new_a[i - 1] = k;
-        for j in 1..i {
-            new_a[j - 1] = a[j - 1] + k * a[i - j - 1];
-        }
-        a = new_a;
-        err *= 1.0 - k * k;
-        if err <= 0.0 {
-            break;
-        }
-    }
-    a
-}
-
-/// Order-2 variant for the LTP weighting filter (clause IV.6.1.2.3).
-fn conditioned_levinson_order2(r: &mut [f64; 3]) -> [f64; 2] {
-    let mut full = [0.0_f64; LP_ORDER + 1];
-    full[..3].copy_from_slice(r);
-    condition_autocorrelation_n(&mut full, 2);
-    let r = &full;
-    let mut a = [0.0_f64; 2];
-    if r[0] <= 0.0 {
-        return a;
-    }
-    let k1 = -r[1] / r[0];
-    let e1 = r[0] * (1.0 - k1 * k1);
-    if e1 <= 0.0 {
-        a[0] = k1;
-        return a;
-    }
-    let k2 = -(r[2] + k1 * r[1]) / e1;
-    a[0] = k1 + k2 * k1;
-    a[1] = k2;
-    a
-}
-
-/// White-noise correction (40 dB → ×1.0001 on r(0)) and 60-Hz
-/// bandwidth-expansion lag window (clause IV.6.1.2.1, following the
-/// autocorrelation conditioning it cites).
-fn condition_autocorrelation(r: &mut [f64; LP_ORDER + 1]) {
-    condition_autocorrelation_n(r, LP_ORDER);
-}
-
-fn condition_autocorrelation_n(r: &mut [f64; LP_ORDER + 1], order: usize) {
-    r[0] *= 1.0001;
-    if r[0] <= 0.0 {
-        r[0] = 1.0;
-    }
-    for (k, slot) in r.iter_mut().enumerate().take(order + 1).skip(1) {
-        let f = 2.0 * core::f64::consts::PI * 60.0 * k as f64 / 8000.0;
-        *slot *= (-0.5 * f * f).exp();
-    }
+    rep
 }
 
 #[cfg(test)]
