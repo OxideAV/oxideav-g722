@@ -6,6 +6,42 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- **Appendix IV PLC rebuilt in fixed point on the staged numeric
+  tables** (round 439). Three new modules: `src/plc_tables.rs` — the
+  six Table IV.5/G.722 data tables transcribed from the staged
+  extraction (`docs/audio/g722/tables/appendix-IV-*`: Q15 eq IV-2 LPC
+  window, double-precision Q31 lag-window pair with the folded 40-dB
+  white-noise correction, Q16 eq IV-5 decimation FIR, Q14 eq IV-4
+  pre-processing high-pass) plus the eq IV-19 post-filter constants in
+  Q13, each verified in-tree against its printed closed form;
+  `src/basicop.rs` — the ITU-T G.191 STL basic-operator set per the
+  staged semantics notes (`docs/audio/g722/basic-operators/`),
+  per-operation saturation, the manuals' pinned corner cases as
+  tests, and the data-pinned `(hi << 16) + (lo << 1)` double-precision
+  encoding with a derived `Mpy_32`; `src/plc_analysis.rs` — the
+  clause IV.6.1.2.1–IV.6.1.2.3 analysis in that arithmetic (windowed
+  autocorrelation with rescale-on-overflow, lag-window conditioning,
+  double-precision Levinson-Durbin with a `div_s`-plus-refinement
+  reflection division, Q15 normalized correlations). The signal path
+  (residual, synthesis, muting, cross-fade, both pole/zero filters)
+  now runs on the same operators, and the clause IV.6.1.3
+  consecutive-erasure handling is a true continuation (residual
+  pattern, jitter parity, synthesis memory and muting advance carry
+  across frames; the muting counter advances by exactly the newly
+  synthesised span). Realisation choices the staged material leaves
+  open were calibrated black-box against the staged vectors — most
+  consequentially the per-term-rounded eq IV-19 post filter, which
+  dominates the 4-second post-erasure hold. Measured against the
+  staged Appendix IV vectors (bit-exact samples, of 201 120 /
+  200 960 / 128 320): test10 62 691 → **63 965**, test20 74 189 →
+  **77 654**, ovfl 44 874 → 44 557; SNR ≈ 13–14 dB; floors raised
+  accordingly. Residual divergence is now characterised, not open:
+  13 of the 18 ground-truth pitch decisions of `test10.bst` are
+  reproduced, and four of the five misses are the pitch multiples the
+  unobtainable clause IV.6.1.2.3 "favouring smaller pitch values"
+  procedure exists to prevent
+  (`docs/audio/g722/appendix-IV-ltp-smaller-pitch-gap.md`).
+
 - **Appendix II T-series conformance harness**
   (`tests/appendix_ii_tseries.rs`): the ITU-distributed digital test
   sequences (`T1C1.XMT` … `T3H3.RC0`, now staged under

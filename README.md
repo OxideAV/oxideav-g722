@@ -112,22 +112,36 @@ against each other. The two spec-synthesisable generators
 reproduce the ITU-distributed `bt1d3.cod` / `bt1c2.xmt` byte-for-byte.
 
 **Appendix IV packet-loss concealment** is implemented
-(`PlcDecoder`, `src/plc.rs`) from the prose of the staged 2012
-consolidated Recommendation: LPC-based pitch repetition with five-way
-signal classification and class-driven adaptive muting in the lower
-band, pitch-synchronous repetition plus a 50-Hz remove-DC post filter
-(4-second hold) in the higher band, ADPCM state updates and a
-Bartlett cross-fade on recovery. Against the staged Appendix IV
-vectors (`docs/audio/g722/conformance/appendix-IV-plc/`,
-`tests/appendix_iv_plc.rs`) the G.192 container and its
-bit-plane-major payload mapping — recovered black-box from the vectors
-— decode every erasure-free prefix **bit-exactly**; through erasures
-the prose implementation re-converges to bit-exact stretches and
-tracks the reference concealment at zero lag (SNR ≈ 12–14 dB vs the
-reference outputs, pinned as regression floors). Exact reproduction of
-the reference decoder is bounded by clause IV.7: the normative-in-
-practice ANSI-C simulation code (not part of the staged docs) owns the
-fixed-point recipes the printed text leaves open.
+(`PlcDecoder`, `src/plc.rs`) and runs **entirely in fixed point** on
+the staged Appendix IV numeric tables
+(`docs/audio/g722/tables/appendix-IV-*`, transcribed into
+`src/plc_tables.rs` and verified against their printed closed forms)
+and the staged ITU-T G.191 STL basic-operator semantics
+(`docs/audio/g722/basic-operators/`, transcribed into `src/basicop.rs`
+with the manuals' corner cases pinned): LPC-based pitch repetition
+(Q15 eq IV-2 window, double-precision lag-window conditioning,
+Levinson-Durbin to Q12) with five-way signal classification and
+class-driven adaptive muting in the lower band, pitch-synchronous
+repetition plus the eq IV-19 50-Hz remove-DC post filter (Q13,
+4-second hold) in the higher band, ADPCM state updates, a Bartlett
+cross-fade on recovery, and a clause IV.6.1.3 continuation state
+machine that carries the residual pattern, jitter parity, synthesis
+memory and muting advance across consecutive erasures. Realisation
+choices the staged material leaves open (rounding-site placement,
+muting-schedule readings) are calibrated black-box against the staged
+Appendix IV vectors (`docs/audio/g722/conformance/appendix-IV-plc/`,
+`tests/appendix_iv_plc.rs`): every erasure-free prefix decodes
+**bit-exactly**, 32–39 % of all samples match bit for bit through the
+erasure runs (63 965 / 77 654 / 44 557 of the three files' samples),
+and the concealment tracks the reference at zero lag with SNR
+≈ 13–14 dB — all pinned as regression floors. The dominant residual
+divergence is characterised, not open: the clause IV.6.1.2.3
+"procedure favouring the smaller pitch values" is documented
+unobtainable
+(`docs/audio/g722/appendix-IV-ltp-smaller-pitch-gap.md`), and the
+plain eq IV-7 arg max reproduces the reference pitch on 13 of the 18
+ground-truth erasures, with four of the five misses selecting the
+pitch multiples that rule exists to prevent.
 
 The crate is reachable through its direct `Encoder` / `Decoder` API
 only; it does not register a trait-surface codec in the runtime
@@ -137,7 +151,7 @@ registry.
 | ------------ | --------------------- | -------------------------------------------------------------------------------------- |
 | Encoder      | bit-exact (ITU corpus) | Transmit 24-tap QMF (§3.1; unity-DC-gain normalised per the LOWT/HIGHT `>> (y−15)` shift of §5.2.1, with a 16-bit-PCM `>> 14` variant per Note 2), BLOCK 1L QUANTL (decision level `LDU(k) = (Q6(k) << 3)·DETL`, 1-indexed per Table 14) + BLOCK 1H QUANTH (decision level `Q2(1) = 564`) forward quantizers, shared predictor. Bit-exact on all 48 768 corpus octets; also pinned against a spec-pseudo-code golden octet stream. |
 | Decoder      | bit-exact (ITU corpus) | Lower (4/5/6-bit modes 1/2/3) + higher (2-bit) inverse ADPCM, 24-tap receive QMF (unity-DC-gain normalised per eqs 4-3/4-4, with a 16-bit-PCM `>> 11` variant per Note 2), LIMIT saturation. Bit-exact on all 3 × 97 536 corpus samples; also pinned against per-mode golden PCM vectors + per-codeword reset-state inverse-quantizer anchors. |
-| Test vectors | ITU corpus + spec | **`tests/itu_conformance.rs`: the staged ITU-T G.191 conformance corpus bit-exact in both directions and all three modes (encoder 48 768/48 768 octets; decoder 3 × 97 536/97 536 samples), with committed prefix excerpts for standalone CI and a documented anomaly note on the corpus's second `.cod` container**; `src/conformance.rs` golden decode + encode vectors (all modes), per-codeword inverse-quantizer anchors, single-step hand derivation; the **synthesisable Appendix II.3.2 artificial Configuration-2 sequence** driven end-to-end through the receive path with **bit-exact RL#/RH# golden vectors** at three depths — the leading 512-sample window, **per-mode anchors at all 64 Table II-4 sub-sequence boundaries** (covering the full scale-factor / pole-coefficient range + suppressed-codeword sub-sequences 56–64, with the higher-band loop pinned mode-independent), and a full-16384-sample per-mode FNV-1a checksum; the **synthesisable Table II-3/G.722 overflow Configuration-1 sequence** (768 full-scale words) driven through the **encoder** with a bit-exact I# golden window + full-sequence checksum, exercising the pole/zero-section overflow controls; the **Table II-2/G.722 segment structure** (14 tones/d.c./white-noise segments summing to 16384 words) pinned against the printed table, with its **only fully sample-enumerable segment — the 512-word "d.c., value of zero" — driven bit-exact through the encoder** (44-word constant silence code-word `0xFA00` run — I_H=3 / I_L=58 — then the corpus-corroborated predictor-drift hunting tail, fingerprint-pinned) and **full-circuit transmit→receive** across all three modes (`test_harness`); transmit↔receive predictor-state lockstep over a 4096-step sweep; clause-2.4.2 mask driven on the real codec. **`tests/appendix_ii_tseries.rs`: the staged ITU T-series disk corpus (Appendix II digital test sequences) bit-exact on all 11 QMF-bypass legs (2 encoder + 9 decoder), CRC-32-verified against Table II.6**; **`tests/appendix_iv_plc.rs`: the staged Appendix IV PLC vectors — G.192 container + bit-plane mapping pinned, erasure-free prefixes bit-exact, concealment characterised with regression floors**. |
+| Test vectors | ITU corpus + spec | **`tests/itu_conformance.rs`: the staged ITU-T G.191 conformance corpus bit-exact in both directions and all three modes (encoder 48 768/48 768 octets; decoder 3 × 97 536/97 536 samples), with committed prefix excerpts for standalone CI and a documented anomaly note on the corpus's second `.cod` container**; `src/conformance.rs` golden decode + encode vectors (all modes), per-codeword inverse-quantizer anchors, single-step hand derivation; the **synthesisable Appendix II.3.2 artificial Configuration-2 sequence** driven end-to-end through the receive path with **bit-exact RL#/RH# golden vectors** at three depths — the leading 512-sample window, **per-mode anchors at all 64 Table II-4 sub-sequence boundaries** (covering the full scale-factor / pole-coefficient range + suppressed-codeword sub-sequences 56–64, with the higher-band loop pinned mode-independent), and a full-16384-sample per-mode FNV-1a checksum; the **synthesisable Table II-3/G.722 overflow Configuration-1 sequence** (768 full-scale words) driven through the **encoder** with a bit-exact I# golden window + full-sequence checksum, exercising the pole/zero-section overflow controls; the **Table II-2/G.722 segment structure** (14 tones/d.c./white-noise segments summing to 16384 words) pinned against the printed table, with its **only fully sample-enumerable segment — the 512-word "d.c., value of zero" — driven bit-exact through the encoder** (44-word constant silence code-word `0xFA00` run — I_H=3 / I_L=58 — then the corpus-corroborated predictor-drift hunting tail, fingerprint-pinned) and **full-circuit transmit→receive** across all three modes (`test_harness`); transmit↔receive predictor-state lockstep over a 4096-step sweep; clause-2.4.2 mask driven on the real codec. **`tests/appendix_ii_tseries.rs`: the staged ITU T-series disk corpus (Appendix II digital test sequences) bit-exact on all 11 QMF-bypass legs (2 encoder + 9 decoder), CRC-32-verified against Table II.6**; **`tests/appendix_iv_plc.rs`: the staged Appendix IV PLC vectors — G.192 container + bit-plane mapping pinned, erasure-free prefixes bit-exact, fixed-point concealment characterised (32–39 % of all samples bit-exact, SNR ≈ 13–14 dB, 13/18 ground-truth pitch decisions reproduced) with regression floors**. |
 
 ### Implemented
 
@@ -213,28 +227,40 @@ registry.
   bit-exact I# golden anchor.
 
 - **Appendix IV packet-loss concealment** (`plc::PlcDecoder`): the
-  clause IV.5/IV.6 concealment pipeline — LP analysis (eq IV-2 window,
-  60-Hz lag window + 40-dB white-noise correction, Levinson-Durbin),
-  LTP pitch estimation (eq IV-5 decimator, weighted 2nd-order LP,
-  eq IV-6..IV-9 correlations), the Figure IV.4 classifier, residual
-  modification / pitch repetition with jitter (eqs IV-12/-14/-15),
-  synthesis + Table IV.3 adaptive muting, consecutive-erasure
-  continuation, ADPCM state updates (clauses IV.6.1.4 / IV.6.2.4),
-  higher-band repetition, the eq IV-19 remove-DC post filter with its
+  clause IV.5/IV.6 concealment pipeline in the clause IV.7 fixed-point
+  arithmetic — LP analysis (staged Q15 eq IV-2 window, staged
+  double-precision 60-Hz lag window with the folded 40-dB white-noise
+  correction, Levinson-Durbin to Q12), LTP pitch estimation (staged
+  Q16 eq IV-5 decimator, weighted 2nd-order LP, Q15 eq IV-6..IV-9
+  normalized correlations via `div_s`), the Figure IV.4 classifier,
+  residual modification / pitch repetition with jitter
+  (eqs IV-12/-14/-15), Q12 synthesis + Table IV.3 adaptive muting,
+  the clause IV.6.1.3 consecutive-erasure continuation state machine,
+  ADPCM state updates (clauses IV.6.1.4 / IV.6.2.4), higher-band
+  repetition, the Q13 eq IV-19 remove-DC post filter with its
   4-second hold, and the Table IV.4 cross-fade — on 10-ms or 20-ms
-  frames.
+  frames. Supporting modules: `src/plc_tables.rs` (the six Table IV.5
+  tables transcribed from the staged extraction + the eq IV-19
+  constants, closed-form-verified), `src/basicop.rs` (the STL
+  basic-operator set per the staged semantics notes),
+  `src/plc_analysis.rs` (the fixed-point analysis machinery).
 
 ### Not yet implemented
 
-- **Bit-exact** Appendix IV packet-loss concealment: the prose
-  implementation re-converges to bit-exactness between erasures and
-  tracks the reference concealment (SNR ≈ 12–14 dB overall), but exact
-  reproduction of the concealed frames needs the reference's
-  fixed-point recipes — the LP window / lag-window tables, the
-  basic-operator rounding semantics, the cross-fade ramp quantisation
-  — which live only in the clause IV.7 ANSI-C simulation code (not
-  part of the staged docs) and in the unspecified clause IV.6.1.2.3
-  "procedure favouring the smaller pitch values".
+- **Bit-exact** Appendix IV packet-loss concealment: the fixed-point
+  implementation (staged tables + staged basic-operator semantics)
+  re-converges to bit-exactness between erasures and tracks the
+  reference concealment (SNR ≈ 13–14 dB overall), but exact
+  reproduction of the concealed frames is blocked on the unspecified
+  clause IV.6.1.2.3 "procedure favouring the smaller pitch values"
+  (documented unobtainable —
+  `docs/audio/g722/appendix-IV-ltp-smaller-pitch-gap.md`; four of the
+  five remaining ground-truth pitch misses are exactly the pitch
+  multiples it exists to prevent) and on the reference realisation's
+  exact instruction sequences (autocorrelation scaling schedule,
+  reflection-coefficient division, per-site rounding placement), which
+  live only in the clause IV.7 ANSI-C simulation code (not part of
+  the staged docs).
 - Appendix III (high-quality) packet-loss concealment — no test
   vectors exist in the ITU attachment for it; its text is staged.
 - Annex B superwideband extension (50–14 000 Hz).
