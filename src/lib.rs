@@ -81,6 +81,7 @@ mod conformance;
 mod decoder;
 mod encoder;
 pub mod plc;
+mod plc_analysis;
 mod plc_tables;
 mod predictor;
 #[cfg(test)]
