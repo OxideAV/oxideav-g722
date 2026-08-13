@@ -64,7 +64,10 @@ const GAMMA_Q15: i32 = 30_802;
 /// (grid step 32) — all four pitch-multiple misses of the plain arg
 /// max close — and within that plateau the full-corpus bit-exact
 /// scores are maximised on `[5504, 5568]`. The value here is that
-/// sub-interval's midpoint, `α ≈ 1.169`.
+/// sub-interval's midpoint, `α ≈ 1.169`. Validated held-out on
+/// `test20.bst`'s ground truths (no part of the fit): 7/8 vs the
+/// plain arg max's 6/8, closing that set's one pitch-multiple miss
+/// and inducing no new one.
 pub(crate) const TDS_SMALLER_PITCH_MARGIN_Q15: i32 = 5536;
 
 /// **FITTED negative result** — Q15 relative margin of the same

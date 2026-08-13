@@ -82,6 +82,17 @@
 //! score that moved down, −1.6 %, while its SNR rose 12.7 → 14.9 dB);
 //! SNR 14.3 → 14.4 / 14.2 → 14.8 / 12.7 → 14.9 dB.
 //!
+//! **Held-out validation**: the fit used `test10.bst` only. The same
+//! §8 measurement applied to `test20.bst` (own script over the staged
+//! bytes; the §8 method reproduces the note's test10 table exactly)
+//! yields 8 even-lag ground truths among its 9 confident erasures.
+//! The plain arg max scores 6/8 there — one miss the pitch multiple
+//! the rule exists for (frame 92: 106 vs 36, a 3× multiple), one not
+//! (frame 264: 61 vs 91). The fitted margin scores 7/8: it closes the
+//! frame-92 multiple and induces no new miss, while frame 264 is
+//! missed identically by both rules (a non-multiple divergence, like
+//! frame 570 not attributable to the preference).
+//!
 //! Secondary divergence sources are the unstaged instruction
 //! sequences of the reference realisation (the autocorrelation
 //! scaling schedule, the reflection-coefficient division, rounding-
@@ -386,18 +397,30 @@ const PITCH_GROUND_TRUTH: [(usize, usize); 18] = [
     (1133, 54),
 ];
 
-#[test]
-fn fitted_pitch_preference_reproduces_the_ground_truth_decisions() {
-    // Pins the fit of the clause IV.6.1.2.3 smaller-pitch preference
-    // (see the module docs): 17 of the 18 ground truths must be
-    // reproduced, and the single residual miss must stay the frame
-    // 570 one-lag refinement difference. The plain arg max scores
-    // 13/18 here, its four extra misses all being pitch multiples.
-    let (Some(bst), _) = (read_words("test10.bst"), ()) else {
-        return;
-    };
-    let frames = parse_g192(&bst);
-    let mut plc = PlcDecoder::new(Mode::Mode1, 160);
+/// Held-out ground-truth pitch decisions of `test20.bst`, measured by
+/// the same gap-note §8 method (own measurement over the staged
+/// reference bytes; see the module docs — the method reproduces the
+/// note's printed test10 table exactly). The 8 even-lag entries of
+/// the 9 confident (corr ≥ 0.99) good-preceded erasures; the ninth
+/// (frame 58, odd effective lag 71) is a jitter-smeared non-VOICED
+/// case excluded exactly as §8 excludes test10's frame 407.
+const PITCH_GROUND_TRUTH_20: [(usize, usize); 8] = [
+    (92, 36),
+    (121, 36),
+    (264, 91),
+    (327, 53),
+    (343, 57),
+    (523, 66),
+    (542, 42),
+    (601, 53),
+];
+
+/// Run the PLC over a staged `.bst` file and return the pitch `T0` in
+/// force at every good-preceded (first-of-run) erasure.
+fn first_erasure_pitches(bst_name: &str, frame_samples: usize) -> Option<Vec<(usize, usize)>> {
+    let words = read_words(bst_name)?;
+    let frames = parse_g192(&words);
+    let mut plc = PlcDecoder::new(Mode::Mode1, frame_samples);
     let mut pitches: Vec<(usize, usize)> = Vec::new();
     let mut prev_good = true;
     for (fi, f) in frames.iter().enumerate() {
@@ -411,15 +434,54 @@ fn fitted_pitch_preference_reproduces_the_ground_truth_decisions() {
         }
         prev_good = f.good;
     }
-    let mut misses: Vec<(usize, Option<usize>, usize)> = Vec::new();
-    for &(frame, want) in &PITCH_GROUND_TRUTH {
-        let got = pitches.iter().find(|&&(f, _)| f == frame).map(|&(_, t)| t);
-        if got != Some(want) {
-            misses.push((frame, got, want));
-        }
-    }
+    Some(pitches)
+}
+
+/// The `(frame, got, want)` mismatches of `pitches` against a
+/// ground-truth table.
+fn pitch_misses(
+    pitches: &[(usize, usize)],
+    truth: &[(usize, usize)],
+) -> Vec<(usize, Option<usize>, usize)> {
+    truth
+        .iter()
+        .filter_map(|&(frame, want)| {
+            let got = pitches.iter().find(|&&(f, _)| f == frame).map(|&(_, t)| t);
+            (got != Some(want)).then_some((frame, got, want))
+        })
+        .collect()
+}
+
+#[test]
+fn fitted_pitch_preference_holds_on_the_held_out_test20_set() {
+    // The fit used test10 only; test20's ground truths are a held-out
+    // validation set (see the module docs). The fitted rule must keep
+    // reproducing 7 of the 8, with the single residual miss staying
+    // the frame-264 non-multiple divergence that the plain arg max
+    // misses identically (the plain rule additionally picks a 3×
+    // multiple on frame 92: 106 vs 36).
+    let Some(pitches) = first_erasure_pitches("test20.bst", 320) else {
+        return;
+    };
     assert_eq!(
-        misses,
+        pitch_misses(&pitches, &PITCH_GROUND_TRUTH_20),
+        vec![(264, Some(61), 91)],
+        "held-out test20 pitch decisions drifted from the fit"
+    );
+}
+
+#[test]
+fn fitted_pitch_preference_reproduces_the_ground_truth_decisions() {
+    // Pins the fit of the clause IV.6.1.2.3 smaller-pitch preference
+    // (see the module docs): 17 of the 18 ground truths must be
+    // reproduced, and the single residual miss must stay the frame
+    // 570 one-lag refinement difference. The plain arg max scores
+    // 13/18 here, its four extra misses all being pitch multiples.
+    let Some(pitches) = first_erasure_pitches("test10.bst", 160) else {
+        return;
+    };
+    assert_eq!(
+        pitch_misses(&pitches, &PITCH_GROUND_TRUTH),
         vec![(570, Some(83), 82)],
         "ground-truth pitch decisions drifted from the fit"
     );

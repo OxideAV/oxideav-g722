@@ -39,9 +39,16 @@ All notable changes to this project will be documented in this file.
   floor consciously re-based 44 000 → 43 500 as documented in the
   test), and a new `fitted_pitch_preference_reproduces_the_ground_
   truth_decisions` test pins the 18 ground-truth decisions (17
-  matches + the characterised frame-570 miss) against drift. New
-  diagnostic surface: `PlcDecoder::concealment_pitch()`
-  (`#[doc(hidden)]`).
+  matches + the characterised frame-570 miss) against drift. The fit
+  additionally validates **held-out**: applying the gap note's §8
+  measurement to `test20.bst` (own script over the staged bytes; the
+  method reproduces the note's printed test10 table exactly) yields
+  8 even-lag ground truths that were no part of the fit — the plain
+  arg max scores 6/8 (one miss a 3× pitch multiple), the fitted rule
+  7/8, closing the multiple and inducing no new miss; the shared
+  frame-264 miss is a non-multiple divergence. A second regression
+  test pins the held-out set. New diagnostic surface:
+  `PlcDecoder::concealment_pitch()` (`#[doc(hidden)]`).
 
 - **Appendix IV PLC rebuilt in fixed point on the staged numeric
   tables** (round 439). Three new modules: `src/plc_tables.rs` — the

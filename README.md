@@ -152,7 +152,11 @@ at the constant itself (`src/plc_analysis.rs`,
 refinement lag) is a recorded **negative result** for the same rule
 at the eq IV-8 refinement stage: no useful margin closes it and
 larger ones break correct decisions, so the refinement keeps the
-plain arg max. Full-corpus validation: exact samples rose
+plain arg max. The fit also validates **held-out**: on `test20.bst`'s
+8 ground truths (measured by the gap note's §8 method, which was not
+part of the fit) the fitted rule scores 7/8 vs the plain arg max's
+6/8 — closing that set's one pitch-multiple miss and inducing no new
+one. Full-corpus validation: exact samples rose
 63 965 → 68 053 (test10) and 77 654 → 78 844 (test20); the ovfl
 exact count moved 44 557 → 43 845 (−1.6 %) while its SNR rose
 12.7 → 14.9 dB.
