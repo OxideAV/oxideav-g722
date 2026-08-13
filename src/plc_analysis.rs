@@ -19,12 +19,14 @@
 //! gap, the clause IV.6.1.2.3 "procedure favouring the smaller pitch
 //! values", is documented as unobtainable
 //! (`docs/audio/g722/appendix-IV-ltp-smaller-pitch-gap.md`); the
-//! search below is the plain eq (IV-7) `arg max` with the smaller lag
-//! kept on ties.
+//! search below therefore runs a **fitted** preference rule —
+//! calibrated black-box against the staged Appendix IV vectors, and
+//! never to be mistaken for the ITU recipe — documented at
+//! [`TDS_SMALLER_PITCH_MARGIN_Q15`].
 
 use crate::basicop::{
-    div_s, extract_h, l_abs, l_add, l_comp, l_deposit_h, l_extract, l_mac, l_mac0, l_msu, l_mult,
-    l_shl, l_shr, l_sub, mpy_32, mpy_32_16, mult, norm_l, round_fx, shr,
+    add, div_s, extract_h, l_abs, l_add, l_comp, l_deposit_h, l_extract, l_mac, l_mac0, l_msu,
+    l_mult, l_shl, l_shr, l_sub, mpy_32, mpy_32_16, mult, mult_r, norm_l, round_fx, shr,
 };
 use crate::plc_tables::{FIR_LP, LAG_H, LAG_L, LPC_WIN_80};
 
@@ -37,6 +39,65 @@ pub(crate) const LP_ORDER: usize = 8;
 /// Q15 weighting constant γ = 0.94 of the clause IV.6.1.2.3 filter
 /// B(z/γ): `round(0.94 × 32768) = 30802`.
 const GAMMA_Q15: i32 = 30_802;
+
+/// **FITTED, not ITU-specified** — Q15 relative margin of the
+/// smaller-pitch preference in the eq (IV-7) `Tds` search.
+///
+/// Clause IV.6.1.2.3 requires "a procedure favouring the smaller pitch
+/// values to avoid choosing pitch multiples" but specifies no rule
+/// (documented unobtainable —
+/// `docs/audio/g722/appendix-IV-ltp-smaller-pitch-gap.md`). Following
+/// that note's §9 experiment, the search below iterates lags upward
+/// and lets a longer lag displace the incumbent only when its
+/// correlation exceeds the incumbent's by this relative margin:
+/// `r(i) > r(best) + margin·r(best)` (i.e. `r(i) > α·r(best)` with
+/// `α = 1 + margin/32768`). The value was **fitted black-box against
+/// the staged Appendix IV vectors** (ground-truth pitch decisions of
+/// `tests/appendix_iv_plc.rs`); it is *not* the ITU recipe, whose
+/// text lives only in the unstaged reference realisation. Margin 0
+/// degenerates to the plain arg max.
+///
+/// Fit (2026-08-13, methodology + residuals in README §Appendix IV
+/// and `tests/appendix_iv_plc.rs`): sweeping the margin over the
+/// staged vectors, the reference reproduces 17 of the 18 ground-truth
+/// pitch decisions of `test10.bst` for every margin in `[5504, 6272]`
+/// (grid step 32) — all four pitch-multiple misses of the plain arg
+/// max close — and within that plateau the full-corpus bit-exact
+/// scores are maximised on `[5504, 5568]`. The value here is that
+/// sub-interval's midpoint, `α ≈ 1.169`.
+pub(crate) const TDS_SMALLER_PITCH_MARGIN_Q15: i32 = 5536;
+
+/// **FITTED negative result** — Q15 relative margin of the same
+/// smaller-pitch preference applied to the eq (IV-8) refinement
+/// search over `[4·Tds − 2, 4·Tds + 2]`; 0 keeps the plain arg max.
+///
+/// Fitted independently of [`TDS_SMALLER_PITCH_MARGIN_Q15`] and kept
+/// at 0: the one remaining ground-truth miss (frame 570 of
+/// `test10.bst`, `T0` 83 vs 82) does not close for any margin up to
+/// 128/32768, and by 256/32768 three previously correct one-lag
+/// refinements (frames 149 / 251 / 576) break instead — so the
+/// residual divergence there is a correlation-arithmetic difference,
+/// not a missing smaller-pitch preference.
+pub(crate) const REFINE_SMALLER_PITCH_MARGIN_Q15: i32 = 0;
+
+/// Maximum-correlation search with the smaller-pitch preference: walk
+/// `values` upward from index 0 and let a later (longer-lag) candidate
+/// displace the incumbent only when it clears the incumbent's
+/// correlation by the Q15 relative margin (`v > best + margin·best`,
+/// saturating 16-bit arithmetic, `mult_r` rounding). Returns
+/// `(index_of_best, best_value)`; with `margin_q15 = 0` this is the
+/// plain arg max keeping the smaller lag on ties.
+fn preferred_max(values: &[i32], margin_q15: i32) -> (usize, i32) {
+    debug_assert!(!values.is_empty());
+    let mut best = 0;
+    for (i, &v) in values.iter().enumerate().skip(1) {
+        let threshold = add(values[best], mult_r(values[best], margin_q15));
+        if v > threshold {
+            best = i;
+        }
+    }
+    (best, values[best])
+}
 
 /// Windowed autocorrelation with the clause IV.6.1.2.1 conditioning.
 ///
@@ -285,13 +346,31 @@ fn norm_corr(xy: i64, xx: i64, yy: i64) -> i32 {
 /// the pre-processed signal. Returns `(T0, Rmax)` with `Rmax` in Q15.
 ///
 /// Steps a)–e) are implemented as printed: `Tds = 18` unless some
-/// `r(i) < 0` exists, then the plain arg max over `[max(i0, 4), 35]`.
+/// `r(i) < 0` exists, then the maximum search over `[max(i0, 4), 35]`.
 /// The additional "procedure favouring the smaller pitch values" has
 /// no obtainable specification (staged gap note
-/// `appendix-IV-ltp-smaller-pitch-gap.md`); the tie-break here keeps
-/// the smaller lag, and the residual divergence against the reference
-/// vectors is characterised in `tests/appendix_iv_plc.rs`.
+/// `appendix-IV-ltp-smaller-pitch-gap.md`); both the `Tds` search and
+/// the refinement therefore run through [`preferred_max`] with the
+/// **fitted** margins [`TDS_SMALLER_PITCH_MARGIN_Q15`] /
+/// [`REFINE_SMALLER_PITCH_MARGIN_Q15`] (smaller lag kept on ties),
+/// and the residual divergence against the reference vectors is
+/// characterised in `tests/appendix_iv_plc.rs`.
 pub(crate) fn ltp_analysis(zlpre: &[i32; 288]) -> (usize, i32) {
+    ltp_analysis_with_margins(
+        zlpre,
+        TDS_SMALLER_PITCH_MARGIN_Q15,
+        REFINE_SMALLER_PITCH_MARGIN_Q15,
+    )
+}
+
+/// [`ltp_analysis`] with explicit preference margins — the fitting /
+/// characterisation surface used by the calibration measurements
+/// (`margin = 0` is the plain arg max on both stages).
+pub(crate) fn ltp_analysis_with_margins(
+    zlpre: &[i32; 288],
+    tds_margin_q15: i32,
+    refine_margin_q15: i32,
+) -> (usize, i32) {
     let t = decimate(zlpre);
     let tw = weight(&t);
 
@@ -313,15 +392,10 @@ pub(crate) fn ltp_analysis(zlpre: &[i32; 288]) -> (usize, i32) {
     let r_vals: Vec<i32> = (0..=35).map(|i| if i == 0 { 0 } else { r_at(i) }).collect();
     let mut tds: usize = 18; // step a) initialisation.
     if let Some(i0) = (1..=35).find(|&i| r_vals[i] < 0) {
-        // Steps c)–e).
+        // Steps c)–e), with the fitted smaller-pitch preference.
         let i1 = i0.max(4);
-        let mut best = i1;
-        for i in i1..=35 {
-            if r_vals[i] > r_vals[best] {
-                best = i;
-            }
-        }
-        tds = best;
+        let (off, _) = preferred_max(&r_vals[i1..=35], tds_margin_q15);
+        tds = i1 + off;
     }
 
     // Refinement (eqs IV-8 / IV-9): T = 4·Tds, window length T,
@@ -343,16 +417,9 @@ pub(crate) fn ltp_analysis(zlpre: &[i32; 288]) -> (usize, i32) {
     };
     let lo = t_mid.saturating_sub(2).max(1);
     let hi = (t_mid + 2).min(288 - t_mid);
-    let mut t0 = lo;
-    let mut best = i32::MIN;
-    for i in lo..=hi {
-        let v = big_r(i);
-        if v > best {
-            best = v;
-            t0 = i;
-        }
-    }
-    (t0, best)
+    let big_r_vals: Vec<i32> = (lo..=hi).map(big_r).collect();
+    let (off, best) = preferred_max(&big_r_vals, refine_margin_q15);
+    (lo + off, best)
 }
 
 /// One sample of the eq (IV-4) pre-processing high-pass on the staged
@@ -564,6 +631,59 @@ mod tests {
             pv = v;
         }
         assert!((0..=2).contains(&v), "H_post DC residue {v}");
+    }
+
+    #[test]
+    fn preferred_max_margin_zero_is_the_plain_arg_max() {
+        // Degenerate case: margin 0 must reproduce the strict arg max
+        // keeping the smaller index on ties.
+        let v = [3, -7, 12, 12, 5, 12, -1];
+        assert_eq!(preferred_max(&v, 0), (2, 12));
+        let w = [-4, -9, -2, -2];
+        assert_eq!(preferred_max(&w, 0), (2, -2));
+    }
+
+    #[test]
+    fn preferred_max_holds_the_smaller_lag_inside_the_margin() {
+        // A longer lag whose correlation exceeds the incumbent's by
+        // less than the relative margin must NOT displace it — the
+        // pitch-multiple case the fitted rule exists for. Threshold at
+        // margin 5536 for best = 10000: 10000 + round(10000·5536/2^15)
+        // = 11689.
+        let v = [10_000, 2_000, 500, 11_600, 300];
+        assert_eq!(preferred_max(&v, TDS_SMALLER_PITCH_MARGIN_Q15), (0, 10_000));
+        // Margin 0 would have taken the longer lag.
+        assert_eq!(preferred_max(&v, 0), (3, 11_600));
+        // A clear winner still displaces the incumbent.
+        let w = [10_000, 2_000, 500, 11_700, 300];
+        assert_eq!(preferred_max(&w, TDS_SMALLER_PITCH_MARGIN_Q15), (3, 11_700));
+    }
+
+    #[test]
+    fn preferred_max_margin_scales_negative_incumbents_toward_zero() {
+        // For a negative incumbent the α·r(best) threshold moves DOWN
+        // (α > 1 makes a negative number more negative), so any later
+        // value above it displaces — pinning the multiplicative
+        // reading of the fitted rule on the r(i) < 0 side.
+        let v = [-5_000, -4_990];
+        assert_eq!(preferred_max(&v, TDS_SMALLER_PITCH_MARGIN_Q15), (1, -4_990));
+    }
+
+    #[test]
+    fn ltp_margins_reproduce_the_fitted_and_plain_searches() {
+        // On a two-periodicity signal (fundamental + a stronger-looking
+        // multiple within the margin) the fitted search and the plain
+        // arg max may legitimately differ; on a clean single pitch they
+        // must agree.
+        let mut zlpre = [0i32; 288];
+        for (i, slot) in zlpre.iter_mut().enumerate() {
+            let ph = (i % 60) as f64 / 60.0 * core::f64::consts::TAU;
+            *slot = (ph.sin() * 8000.0 + (2.0 * ph).cos() * 2500.0) as i32;
+        }
+        let fitted = ltp_analysis(&zlpre);
+        let plain = ltp_analysis_with_margins(&zlpre, 0, 0);
+        assert_eq!(fitted, plain, "clean single pitch must be unaffected");
+        assert_eq!(fitted.0, 60);
     }
 
     #[test]

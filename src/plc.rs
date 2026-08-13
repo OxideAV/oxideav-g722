@@ -40,7 +40,10 @@
 //! instruction sequence of the reference realisation (only the
 //! operator semantics and the data tables are staged) and the clause
 //! IV.6.1.2.3 "procedure favouring the smaller pitch values"
-//! (`docs/audio/g722/appendix-IV-ltp-smaller-pitch-gap.md`).
+//! (`docs/audio/g722/appendix-IV-ltp-smaller-pitch-gap.md`) — the
+//! latter realised as a **fitted** preference rule calibrated
+//! black-box against the staged vectors, not as the ITU recipe
+//! (`plc_analysis::TDS_SMALLER_PITCH_MARGIN_Q15`).
 
 use crate::basicop::{l_mac, l_mult, mult_r, round_fx};
 use crate::decoder::{HigherDecoderState, LowerDecoderState, Mode, ReceiveQmf};
@@ -298,6 +301,15 @@ impl PlcDecoder {
     /// Number of 16-kHz samples per frame.
     pub fn frame_samples(&self) -> usize {
         self.l * 2
+    }
+
+    /// Pitch delay `T0` (lower-sub-band samples, clauses IV.6.1.2.3 /
+    /// IV.6.1.2.4) of the concealment analysis currently in force, or
+    /// `None` outside an erasure run. Diagnostic surface used by the
+    /// conformance characterisation in `tests/appendix_iv_plc.rs`.
+    #[doc(hidden)]
+    pub fn concealment_pitch(&self) -> Option<usize> {
+        self.analysis.as_ref().map(|a| a.t0)
     }
 
     /// Decode one good frame of `L` octets (two 16-kHz samples per

@@ -6,6 +6,43 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- **Fitted smaller-pitch preference for the Appendix IV LTP search**
+  (round 442). The clause IV.6.1.2.3 "procedure favouring the smaller
+  pitch values to avoid choosing pitch multiples" is specified by no
+  ITU document (documented unobtainable —
+  `docs/audio/g722/appendix-IV-ltp-smaller-pitch-gap.md`); following
+  that note's §9 experiment — now user-authorised — the eq IV-7 `Tds`
+  search runs a **fitted rule, documented as such and never claimed
+  as the ITU recipe**: lags are walked upward and a longer lag
+  displaces the smaller-lag incumbent only when `r(i) > α·r(best)`,
+  with the Q15 margin `α − 1` **calibrated black-box against the
+  staged Appendix IV vectors**
+  (`plc_analysis::TDS_SMALLER_PITCH_MARGIN_Q15 = 5536`, α ≈ 1.169).
+  Fit methodology, plateau and residuals are recorded at the constant
+  and in `tests/appendix_iv_plc.rs`: every margin in `[5504, 6272]`
+  (grid step 32) closes all four pitch-multiple misses of the plain
+  arg max — 17/18 ground-truth pitch decisions of `test10.bst`
+  reproduced, up from 13/18 — and the full-corpus scores peak on
+  `[5504, 5568]`, whose midpoint was taken. Applying the same rule to
+  the eq IV-8 refinement search is a recorded **negative result**
+  (the one residual miss, frame 570's 83-vs-82 one-lag refinement,
+  never closes before margins ≥ 256/2¹⁵ break three previously
+  correct decisions), so the refinement keeps the plain arg max
+  (`REFINE_SMALLER_PITCH_MARGIN_Q15 = 0`). Measured against the
+  staged vectors: bit-exact samples test10 63 965 → **68 053**,
+  test20 77 654 → **78 844**, ovfl 44 557 → 43 845 (the one score
+  that moved down, −1.6 %, while ovfl SNR rose 12.7 → **14.9 dB**);
+  SNR 14.3 → 14.4 / 14.2 → 14.8 dB on test10/test20; erasure-free
+  prefixes stay bit-exact and every other conformance gate is
+  unchanged. Floors re-based accordingly (test10 63 500 → 67 500,
+  test20 77 000 → 78 300, SNR floors 14.0/14.5/14.5; ovfl exact
+  floor consciously re-based 44 000 → 43 500 as documented in the
+  test), and a new `fitted_pitch_preference_reproduces_the_ground_
+  truth_decisions` test pins the 18 ground-truth decisions (17
+  matches + the characterised frame-570 miss) against drift. New
+  diagnostic surface: `PlcDecoder::concealment_pitch()`
+  (`#[doc(hidden)]`).
+
 - **Appendix IV PLC rebuilt in fixed point on the staged numeric
   tables** (round 439). Three new modules: `src/plc_tables.rs` — the
   six Table IV.5/G.722 data tables transcribed from the staged
