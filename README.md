@@ -292,6 +292,7 @@ registry.
 
 ```rust
 use oxideav_g722::{Decoder, Encoder, Mode};
+# fn read_pcm_samples() -> Vec<i32> { vec![0; 320] }
 
 // Encode 16 kHz uniform-PCM samples into G.722 octets.
 let mut encoder = Encoder::new();
@@ -312,6 +313,7 @@ the ITU conformance corpus is bit-exact under):
 
 ```rust
 use oxideav_g722::{Decoder, Encoder, Mode};
+# fn read_pcm16_samples() -> Vec<i16> { vec![0; 320] }
 
 let mut encoder = Encoder::new();
 let pcm16: Vec<i16> = read_pcm16_samples();
@@ -331,6 +333,7 @@ extrapolates erased ones:
 
 ```rust
 use oxideav_g722::{Mode, PlcDecoder};
+# let frame_octets = vec![0u8; 80];
 
 let mut plc = PlcDecoder::new(Mode::Mode1, 160); // 10-ms frames
 let good: Vec<i16> = plc.decode_good_frame(&frame_octets);
