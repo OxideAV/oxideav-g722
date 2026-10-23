@@ -445,7 +445,7 @@ pub mod appendix_ii {
             }
             4 => {
                 // Period 2: 10
-                u8::from(within % 2 == 0)
+                u8::from(within.is_multiple_of(2))
             }
             5 => {
                 // Period 8: 00000100
@@ -864,7 +864,7 @@ mod tests {
     fn infa_sign_extends_xl_for_negative_word() {
         // Word with MSB set -> XL must be negative.
         let r = infa(-0x6543); // arbitrary negative value.
-                               // The arithmetic right shift preserves the sign.
+        // The arithmetic right shift preserves the sign.
         assert!(r.xl < 0);
         assert_eq!(r.xl, i32::from(-0x6543_i16 >> 1));
         assert_eq!(r.xh, r.xl);
@@ -1121,7 +1121,7 @@ mod tests {
             enc.encode_subband_pair(1234, -1234);
         }
         let mut inputs = alloc::vec![0x0001_i16]; // RSS slot
-                                                  // Some payload (RSS=0 means LSB cleared).
+        // Some payload (RSS=0 means LSB cleared).
         for i in 0..16_i16 {
             inputs.push((i * 8) << 1); // XL = i*8 after `>> 1`.
         }
@@ -1235,7 +1235,7 @@ mod tests {
 
     #[test]
     fn appendix_ii_lower_msb_subsequence_2_prefix_matches_print() {
-        use super::appendix_ii::{lower_msb_bit, SUBSEQUENCE_LEN_BITS};
+        use super::appendix_ii::{SUBSEQUENCE_LEN_BITS, lower_msb_bit};
         // (2): "1 1 1 1 0 0 0 0 1 1 1 1 0 0 0 0 1…"
         let expected: [u8; 17] = [1, 1, 1, 1, 0, 0, 0, 0, 1, 1, 1, 1, 0, 0, 0, 0, 1];
         for (i, &e) in expected.iter().enumerate() {
@@ -1245,7 +1245,7 @@ mod tests {
 
     #[test]
     fn appendix_ii_lower_msb_subsequence_3_is_constant_one() {
-        use super::appendix_ii::{lower_msb_bit, SUBSEQUENCE_LEN_BITS};
+        use super::appendix_ii::{SUBSEQUENCE_LEN_BITS, lower_msb_bit};
         // (3): all 1s for 2048 bits.
         for i in 0..SUBSEQUENCE_LEN_BITS {
             assert_eq!(lower_msb_bit(2 * SUBSEQUENCE_LEN_BITS + i), 1);
@@ -1254,7 +1254,7 @@ mod tests {
 
     #[test]
     fn appendix_ii_lower_msb_subsequence_4_prefix_matches_print() {
-        use super::appendix_ii::{lower_msb_bit, SUBSEQUENCE_LEN_BITS};
+        use super::appendix_ii::{SUBSEQUENCE_LEN_BITS, lower_msb_bit};
         // (4): "1 1 0 0 1 1 0 0 1 1 0 0 1 1 0 0 1…"
         let expected: [u8; 17] = [1, 1, 0, 0, 1, 1, 0, 0, 1, 1, 0, 0, 1, 1, 0, 0, 1];
         for (i, &e) in expected.iter().enumerate() {
@@ -1268,7 +1268,7 @@ mod tests {
 
     #[test]
     fn appendix_ii_lower_msb_subsequence_5_is_alternating() {
-        use super::appendix_ii::{lower_msb_bit, SUBSEQUENCE_LEN_BITS};
+        use super::appendix_ii::{SUBSEQUENCE_LEN_BITS, lower_msb_bit};
         // (5): "1 0 1 0 1 0 …"
         for i in 0..32 {
             let expected = if i % 2 == 0 { 1 } else { 0 };
@@ -1278,7 +1278,7 @@ mod tests {
 
     #[test]
     fn appendix_ii_lower_msb_subsequence_6_prefix_matches_print() {
-        use super::appendix_ii::{lower_msb_bit, SUBSEQUENCE_LEN_BITS};
+        use super::appendix_ii::{SUBSEQUENCE_LEN_BITS, lower_msb_bit};
         // (6): "0 0 0 0 0 1 0 0 0 0 0 0 0 1 0 0 0…"
         // Split as (00000100)(00000100)(0) per the period-8 reading.
         let expected: [u8; 17] = [0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0];
@@ -1293,7 +1293,7 @@ mod tests {
 
     #[test]
     fn appendix_ii_lower_msb_subsequence_7_prefix_matches_print() {
-        use super::appendix_ii::{lower_msb_bit, SUBSEQUENCE_LEN_BITS};
+        use super::appendix_ii::{SUBSEQUENCE_LEN_BITS, lower_msb_bit};
         // (7): "0 0 1 0 1 0 0 1 0 1 0 0 1 0 1 0 0…"
         let expected: [u8; 17] = [0, 0, 1, 0, 1, 0, 0, 1, 0, 1, 0, 0, 1, 0, 1, 0, 0];
         for (i, &e) in expected.iter().enumerate() {
@@ -1307,7 +1307,7 @@ mod tests {
 
     #[test]
     fn appendix_ii_lower_msb_subsequence_8_prefix_matches_print() {
-        use super::appendix_ii::{lower_msb_bit, SUBSEQUENCE_LEN_BITS};
+        use super::appendix_ii::{SUBSEQUENCE_LEN_BITS, lower_msb_bit};
         // (8): "1 1 0 0 0 1 1 0 0 0 1 1 0 0 0 1 1…"
         let expected: [u8; 17] = [1, 1, 0, 0, 0, 1, 1, 0, 0, 0, 1, 1, 0, 0, 0, 1, 1];
         for (i, &e) in expected.iter().enumerate() {
@@ -1321,7 +1321,7 @@ mod tests {
 
     #[test]
     fn appendix_ii_higher_msb_mirrors_lower_msb() {
-        use super::appendix_ii::{higher_msb_bit, lower_msb_bit, ARTIFICIAL_SEQUENCE_LEN};
+        use super::appendix_ii::{ARTIFICIAL_SEQUENCE_LEN, higher_msb_bit, lower_msb_bit};
         // Clause II.3.2.2 p. 68: "identical to those used in the MSB
         // sequence for the lower sub-band ADPCM". Spot-check a spread
         // of indices across all 8 sub-sequences.
@@ -1335,7 +1335,7 @@ mod tests {
 
     #[test]
     fn appendix_ii_higher_lsb_subsequence_1_is_constant_one() {
-        use super::appendix_ii::{higher_lsb_bit, SUBSEQUENCE_LEN_BITS};
+        use super::appendix_ii::{SUBSEQUENCE_LEN_BITS, higher_lsb_bit};
         for i in 0..SUBSEQUENCE_LEN_BITS {
             assert_eq!(higher_lsb_bit(i), 1);
         }
@@ -1343,7 +1343,7 @@ mod tests {
 
     #[test]
     fn appendix_ii_higher_lsb_subsequence_2_alternates_sixteen() {
-        use super::appendix_ii::{higher_lsb_bit, SUBSEQUENCE_LEN_BITS};
+        use super::appendix_ii::{SUBSEQUENCE_LEN_BITS, higher_lsb_bit};
         // 16 ones followed by 16 zeros.
         for i in 0..16 {
             assert_eq!(higher_lsb_bit(SUBSEQUENCE_LEN_BITS + i), 1);
@@ -1358,7 +1358,7 @@ mod tests {
 
     #[test]
     fn appendix_ii_higher_lsb_subsequence_3_is_constant_zero() {
-        use super::appendix_ii::{higher_lsb_bit, SUBSEQUENCE_LEN_BITS};
+        use super::appendix_ii::{SUBSEQUENCE_LEN_BITS, higher_lsb_bit};
         for i in 0..SUBSEQUENCE_LEN_BITS {
             assert_eq!(higher_lsb_bit(2 * SUBSEQUENCE_LEN_BITS + i), 0);
         }
@@ -1366,7 +1366,7 @@ mod tests {
 
     #[test]
     fn appendix_ii_higher_lsb_subsequence_4_alternates_eight() {
-        use super::appendix_ii::{higher_lsb_bit, SUBSEQUENCE_LEN_BITS};
+        use super::appendix_ii::{SUBSEQUENCE_LEN_BITS, higher_lsb_bit};
         for i in 0..8 {
             assert_eq!(higher_lsb_bit(3 * SUBSEQUENCE_LEN_BITS + i), 1);
         }
@@ -1377,7 +1377,7 @@ mod tests {
 
     #[test]
     fn appendix_ii_higher_lsb_subsequence_6_alternates_four() {
-        use super::appendix_ii::{higher_lsb_bit, SUBSEQUENCE_LEN_BITS};
+        use super::appendix_ii::{SUBSEQUENCE_LEN_BITS, higher_lsb_bit};
         for i in 0..4 {
             assert_eq!(higher_lsb_bit(5 * SUBSEQUENCE_LEN_BITS + i), 1);
         }
@@ -1388,7 +1388,7 @@ mod tests {
 
     #[test]
     fn appendix_ii_higher_lsb_subsequence_8_alternates_two() {
-        use super::appendix_ii::{higher_lsb_bit, SUBSEQUENCE_LEN_BITS};
+        use super::appendix_ii::{SUBSEQUENCE_LEN_BITS, higher_lsb_bit};
         for i in 0..2 {
             assert_eq!(higher_lsb_bit(7 * SUBSEQUENCE_LEN_BITS + i), 1);
         }
@@ -1399,7 +1399,7 @@ mod tests {
 
     #[test]
     fn appendix_ii_lower_lsb5_subsequence_1_is_constant_31() {
-        use super::appendix_ii::{lower_lsb5, LOWER_LSB_SUBSEQUENCE_LEN};
+        use super::appendix_ii::{LOWER_LSB_SUBSEQUENCE_LEN, lower_lsb5};
         // Table II-4 (1): 31 31 31 …
         for i in 0..LOWER_LSB_SUBSEQUENCE_LEN {
             assert_eq!(lower_lsb5(i), 31);
@@ -1408,7 +1408,7 @@ mod tests {
 
     #[test]
     fn appendix_ii_lower_lsb5_subsequence_2_alternates_31_30() {
-        use super::appendix_ii::{lower_lsb5, LOWER_LSB_SUBSEQUENCE_LEN};
+        use super::appendix_ii::{LOWER_LSB_SUBSEQUENCE_LEN, lower_lsb5};
         // Table II-4 (2): sixteen 31's, sixteen 30's.
         for i in 0..16 {
             assert_eq!(lower_lsb5(LOWER_LSB_SUBSEQUENCE_LEN + i), 31);
@@ -1420,7 +1420,7 @@ mod tests {
 
     #[test]
     fn appendix_ii_lower_lsb5_subsequence_3_is_constant_30() {
-        use super::appendix_ii::{lower_lsb5, LOWER_LSB_SUBSEQUENCE_LEN};
+        use super::appendix_ii::{LOWER_LSB_SUBSEQUENCE_LEN, lower_lsb5};
         // Table II-4 (3): 30 30 30 …
         for i in 0..LOWER_LSB_SUBSEQUENCE_LEN {
             assert_eq!(lower_lsb5(2 * LOWER_LSB_SUBSEQUENCE_LEN + i), 30);
@@ -1429,7 +1429,7 @@ mod tests {
 
     #[test]
     fn appendix_ii_lower_lsb5_subsequence_31_is_constant_16() {
-        use super::appendix_ii::{lower_lsb5, LOWER_LSB_SUBSEQUENCE_LEN};
+        use super::appendix_ii::{LOWER_LSB_SUBSEQUENCE_LEN, lower_lsb5};
         // Table II-4 (31): 16 16 16 …
         let base = 30 * LOWER_LSB_SUBSEQUENCE_LEN; // 0-based: sub 30 == spec (31).
         for i in 0..LOWER_LSB_SUBSEQUENCE_LEN {
@@ -1439,7 +1439,7 @@ mod tests {
 
     #[test]
     fn appendix_ii_lower_lsb5_subsequence_57_is_constant_3() {
-        use super::appendix_ii::{lower_lsb5, LOWER_LSB_SUBSEQUENCE_LEN};
+        use super::appendix_ii::{LOWER_LSB_SUBSEQUENCE_LEN, lower_lsb5};
         // Table II-4 (57): 3 3 3 … (entering the suppressed-codeword
         // range per clause II.3.2.1 p. 67 footnote).
         let base = 56 * LOWER_LSB_SUBSEQUENCE_LEN;
@@ -1450,7 +1450,7 @@ mod tests {
 
     #[test]
     fn appendix_ii_lower_lsb5_subsequence_63_is_constant_0() {
-        use super::appendix_ii::{lower_lsb5, LOWER_LSB_SUBSEQUENCE_LEN};
+        use super::appendix_ii::{LOWER_LSB_SUBSEQUENCE_LEN, lower_lsb5};
         // Table II-4 (63): 0 0 0 …
         let base = 62 * LOWER_LSB_SUBSEQUENCE_LEN;
         for i in 0..LOWER_LSB_SUBSEQUENCE_LEN {
@@ -1460,7 +1460,7 @@ mod tests {
 
     #[test]
     fn appendix_ii_lower_lsb5_subsequence_64_wraps_back_to_three() {
-        use super::appendix_ii::{lower_lsb5, LOWER_LSB_SUBSEQUENCE_LEN};
+        use super::appendix_ii::{LOWER_LSB_SUBSEQUENCE_LEN, lower_lsb5};
         // Table II-4 (64): "alternating sixteen 0's, sixteen 3's".
         let base = 63 * LOWER_LSB_SUBSEQUENCE_LEN;
         for i in 0..16 {
@@ -1496,7 +1496,7 @@ mod tests {
 
     #[test]
     fn appendix_ii_build_i_hash_stream_length_and_rss() {
-        use super::appendix_ii::{build_i_hash_stream, ARTIFICIAL_SEQUENCE_LEN};
+        use super::appendix_ii::{ARTIFICIAL_SEQUENCE_LEN, build_i_hash_stream};
         let s = build_i_hash_stream();
         assert_eq!(s.len(), ARTIFICIAL_SEQUENCE_LEN);
         // All data slots must have RSS cleared (LSB = 0).
@@ -1523,7 +1523,7 @@ mod tests {
     fn appendix_ii_build_cod_frame_matches_file_format_size() {
         // Clause II.4.3 p. 71: T1D3.COD = 16 416 test values (= 16
         // prefix + 16384 data + 16 trailer).
-        use super::appendix_ii::{build_cod_frame, ARTIFICIAL_SEQUENCE_LEN, COD_RSS_MARKER_WORDS};
+        use super::appendix_ii::{ARTIFICIAL_SEQUENCE_LEN, COD_RSS_MARKER_WORDS, build_cod_frame};
         let frame = build_cod_frame();
         assert_eq!(frame.len(), 16_416);
         assert_eq!(
@@ -1536,7 +1536,7 @@ mod tests {
     fn appendix_ii_build_cod_frame_prefix_and_trailer_are_rss_markers() {
         // Clause II.4.5.2 p. 72: the 16-word prefix and the 16-word
         // trailer are all RSS-marker words (LSB=1, others=0).
-        use super::appendix_ii::{build_cod_frame, ARTIFICIAL_SEQUENCE_LEN, COD_RSS_MARKER_WORDS};
+        use super::appendix_ii::{ARTIFICIAL_SEQUENCE_LEN, COD_RSS_MARKER_WORDS, build_cod_frame};
         let frame = build_cod_frame();
         for w in &frame[..COD_RSS_MARKER_WORDS] {
             assert_eq!(*w as u16, 0x0001);
@@ -1824,7 +1824,7 @@ mod tests {
         // the entire spec-derivable receive corpus — including the
         // suppressed-codeword wrap sub-sequences (56)–(64) of Table
         // II-4 that the short window does not reach — at negligible cost.
-        use super::appendix_ii::{build_i_hash_stream, ARTIFICIAL_SEQUENCE_LEN};
+        use super::appendix_ii::{ARTIFICIAL_SEQUENCE_LEN, build_i_hash_stream};
         let stream = build_i_hash_stream();
         assert_eq!(stream.len(), ARTIFICIAL_SEQUENCE_LEN);
         let cases = [
@@ -1958,7 +1958,7 @@ mod tests {
     /// Sample the production receive path at each Table II-4 boundary
     /// for `mode`, returning `(RL# boundaries, RH# boundaries)`.
     fn collect_ii4_boundaries(mode: Mode) -> ([i16; II4_BOUNDARIES], [i16; II4_BOUNDARIES]) {
-        use super::appendix_ii::{build_i_hash_stream, LOWER_LSB_SUBSEQUENCE_LEN};
+        use super::appendix_ii::{LOWER_LSB_SUBSEQUENCE_LEN, build_i_hash_stream};
         let stream = build_i_hash_stream();
         let mut dec = Decoder::new(mode);
         let out = run_configuration_2(&mut dec, &stream);
@@ -2096,7 +2096,7 @@ mod tests {
         // and trigger the decoder reset, the 16384-word payload must
         // produce valid (RSS=0) outputs, and the 16-word trailer
         // must again produce non-valid outputs.
-        use super::appendix_ii::{build_cod_frame, ARTIFICIAL_SEQUENCE_LEN, COD_RSS_MARKER_WORDS};
+        use super::appendix_ii::{ARTIFICIAL_SEQUENCE_LEN, COD_RSS_MARKER_WORDS, build_cod_frame};
         let frame = build_cod_frame();
         let mut dec = Decoder::new(Mode::Mode1);
         // Truncate the payload to keep the test fast — RSS-bracket
@@ -2131,7 +2131,7 @@ mod tests {
         // three segments: 639 words cycling `-16384, +16383`; the
         // literal `0, -10000, -8192`; then 126 words cycling
         // `-16384, +16383, -16384`.
-        use super::appendix_ii::{build_overflow_xl_sequence, OVERFLOW_SEQUENCE_LEN};
+        use super::appendix_ii::{OVERFLOW_SEQUENCE_LEN, build_overflow_xl_sequence};
         let seq = build_overflow_xl_sequence();
         assert_eq!(seq.len(), OVERFLOW_SEQUENCE_LEN, "Table II-3 total length");
         assert_eq!(OVERFLOW_SEQUENCE_LEN, 768);
@@ -2221,7 +2221,7 @@ mod tests {
         // (clauses 3.6.1 / 3.6.2, BLOCK 4L / 4H) — a path the artificial
         // Configuration-2 receive sequence does not reach because it
         // bypasses the forward quantizer / difference computation.
-        use super::appendix_ii::{build_overflow_x_hash_stream, OVERFLOW_SEQUENCE_LEN};
+        use super::appendix_ii::{OVERFLOW_SEQUENCE_LEN, build_overflow_x_hash_stream};
         let x_hash = build_overflow_x_hash_stream();
         let mut enc = Encoder::new();
         let out = run_configuration_1(&mut enc, &x_hash);
@@ -2322,7 +2322,7 @@ mod tests {
 
     #[test]
     fn appendix_ii_overflow_full_circuit_transmit_receive_is_bit_exact() {
-        use super::appendix_ii::{build_overflow_x_hash_stream, OVERFLOW_SEQUENCE_LEN};
+        use super::appendix_ii::{OVERFLOW_SEQUENCE_LEN, build_overflow_x_hash_stream};
         let x_hash = build_overflow_x_hash_stream();
 
         // Transmit: encode the spec overflow input to an I# stream.
@@ -2461,7 +2461,7 @@ mod tests {
         // sub-sequences span both bits (0 and 1) with comparable
         // density, so the predictor sees both polarities in each
         // sub-sequence except (3) constant-1.
-        use super::appendix_ii::{lower_msb_bit, NUM_MSB_SUBSEQUENCES, SUBSEQUENCE_LEN_BITS};
+        use super::appendix_ii::{NUM_MSB_SUBSEQUENCES, SUBSEQUENCE_LEN_BITS, lower_msb_bit};
         for sub in 0..NUM_MSB_SUBSEQUENCES {
             let mut zeros = 0;
             let mut ones = 0;
@@ -2596,8 +2596,8 @@ mod tests {
         // INFA must recover `XL = 0` and set `XH = XL`, with RSS clear,
         // for every word (clause II.2.3 p. 65).
         use super::appendix_ii::{
-            build_table_ii_2_dc_zero_x_hash_stream, build_table_ii_2_dc_zero_xl_segment,
-            TABLE_II_2_DC_ZERO_LEN,
+            TABLE_II_2_DC_ZERO_LEN, build_table_ii_2_dc_zero_x_hash_stream,
+            build_table_ii_2_dc_zero_xl_segment,
         };
         use super::infa;
         let xl = build_table_ii_2_dc_zero_xl_segment();
@@ -2638,7 +2638,7 @@ mod tests {
         // whole-segment fingerprint below. (An earlier QQ4
         // transcription collapsed DLT to 0, freezing the word forever —
         // the corpus disproved that.)
-        use super::appendix_ii::{build_table_ii_2_dc_zero_x_hash_stream, TABLE_II_2_DC_ZERO_LEN};
+        use super::appendix_ii::{TABLE_II_2_DC_ZERO_LEN, build_table_ii_2_dc_zero_x_hash_stream};
         let x_hash = build_table_ii_2_dc_zero_x_hash_stream();
         let mut enc = Encoder::new();
         let out = run_configuration_1(&mut enc, &x_hash);
@@ -2688,7 +2688,7 @@ mod tests {
         // transmit-side predictor drift flips the code-word (see the
         // encoder-output test above). A per-mode FNV-1a fingerprint
         // pins the whole chain bit-exactly.
-        use super::appendix_ii::{build_table_ii_2_dc_zero_x_hash_stream, TABLE_II_2_DC_ZERO_LEN};
+        use super::appendix_ii::{TABLE_II_2_DC_ZERO_LEN, build_table_ii_2_dc_zero_x_hash_stream};
         let x_hash = build_table_ii_2_dc_zero_x_hash_stream();
         let mut enc = Encoder::new();
         let i_hash = run_configuration_1(&mut enc, &x_hash);

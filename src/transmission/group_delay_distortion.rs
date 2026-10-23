@@ -250,7 +250,7 @@ const _: () = {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::transmission::{attenuation_distortion, ABSOLUTE_GROUP_DELAY_MAX_MS};
+    use crate::transmission::{ABSOLUTE_GROUP_DELAY_MAX_MS, attenuation_distortion};
 
     #[test]
     fn breakpoints_match_figure_13() {

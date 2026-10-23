@@ -16,7 +16,7 @@
 //!     `I_H1 I_H2 I_L1 I_L2 I_L3 I_L4 I_L5 I_L6` with `I_H1` as the
 //!     first transmitted / most-significant bit).
 
-use crate::predictor::{add, mul, sub, SubBandState};
+use crate::predictor::{SubBandState, add, mul, sub};
 use crate::tables::{
     IHN2_FROM_MH, IHP2_FROM_MH, IL4_FROM_IL4, ILN6_FROM_ML, ILP6_FROM_ML, Q2_LEVEL_1, Q6, QMF_TAPS,
     QQ4, WH, WL,

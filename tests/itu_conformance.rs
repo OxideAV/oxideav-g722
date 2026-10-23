@@ -92,7 +92,9 @@ const OUTSP3_PREFIX: &[u8] = include_bytes!("data/outsp3-prefix.pcm");
 
 fn pcm16_le(bytes: &[u8]) -> Vec<i16> {
     bytes
-        .chunks_exact(2)
+        .as_chunks::<2>()
+        .0
+        .iter()
         .map(|c| i16::from_le_bytes([c[0], c[1]]))
         .collect()
 }
@@ -225,7 +227,9 @@ fn unpack_word_container(words: &[u8]) -> Vec<u8> {
         "word container must be whole 16-bit words"
     );
     words
-        .chunks_exact(2)
+        .as_chunks::<2>()
+        .0
+        .iter()
         .enumerate()
         .map(|(i, w)| {
             assert_eq!(w[1], 0, "codspw.cod word {i} has a non-zero high byte");

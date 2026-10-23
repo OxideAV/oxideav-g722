@@ -48,7 +48,7 @@
 use crate::basicop::{l_mac, l_mult, mult_r, round_fx};
 use crate::decoder::{HigherDecoderState, LowerDecoderState, Mode, ReceiveQmf};
 use crate::plc_analysis::{
-    self, hpre_step, lp_analysis, ltp_analysis, residual_step, synthesis_step, LP_ORDER,
+    self, LP_ORDER, hpre_step, lp_analysis, ltp_analysis, residual_step, synthesis_step,
 };
 
 extern crate alloc;
@@ -751,11 +751,7 @@ fn build_repetition_period(analysis: &Analysis, e_hist: &[i32]) -> Vec<i32> {
                 }
             }
             let mag = crate::basicop::abs_s(raw).min(prev_max);
-            if raw < 0 {
-                -mag
-            } else {
-                mag
-            }
+            if raw < 0 { -mag } else { mag }
         };
         rep.push(v);
     }
@@ -883,8 +879,8 @@ mod tests {
         // conceal: the classifier must pick a pitch that keeps the
         // extrapolation aligned with the true continuation.
         let period = 57usize; // odd, in range after refinement
-                              // Build a periodic 16-kHz waveform and encode it so the
-                              // decoder history is realistic.
+        // Build a periodic 16-kHz waveform and encode it so the
+        // decoder history is realistic.
         let mut enc = crate::Encoder::new();
         let pcm: Vec<i16> = (0..4800)
             .map(|i| {

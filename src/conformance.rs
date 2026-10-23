@@ -363,7 +363,10 @@ fn inverse_quantizer_reset_anchors_are_sign_symmetric() {
 /// through the analysis QMF and then straight into the synthesis QMF
 /// (no quantization), returning the reconstructed 16 kHz output.
 fn qmf_reconstruct(len: usize, impulse_idx: usize, amp: i32) -> alloc::vec::Vec<i32> {
-    assert!(len % 2 == 0, "QMF processes 16 kHz samples in pairs");
+    assert!(
+        len.is_multiple_of(2),
+        "QMF processes 16 kHz samples in pairs"
+    );
     let mut x = alloc::vec![0_i32; len];
     x[impulse_idx] = amp;
     let mut enc = Encoder::new();

@@ -253,8 +253,8 @@ const _: () = {
 mod tests {
     use super::*;
     use crate::transmission::{
-        signal_to_distortion_frequency, NOMINAL_PASSBAND_HIGH_HZ, NOMINAL_PASSBAND_LOW_HZ,
-        NOMINAL_REFERENCE_FREQUENCY_HZ, OVERLOAD_POINT_DBM0,
+        NOMINAL_PASSBAND_HIGH_HZ, NOMINAL_PASSBAND_LOW_HZ, NOMINAL_REFERENCE_FREQUENCY_HZ,
+        OVERLOAD_POINT_DBM0, signal_to_distortion_frequency,
     };
 
     #[test]

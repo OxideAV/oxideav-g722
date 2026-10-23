@@ -263,7 +263,7 @@ const _: () = {
 mod tests {
     use super::*;
     use crate::transmission::{
-        signal_to_distortion, IDLE_NOISE_BAND_LOW_HZ, IDLE_NOISE_NARROWBAND_HIGH_HZ,
+        IDLE_NOISE_BAND_LOW_HZ, IDLE_NOISE_NARROWBAND_HIGH_HZ, signal_to_distortion,
     };
 
     #[test]

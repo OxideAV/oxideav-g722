@@ -52,7 +52,7 @@
 use std::path::PathBuf;
 
 use oxideav_g722::test_harness::{
-    appendix_ii, run_configuration_1, run_configuration_2, Configuration2Output,
+    Configuration2Output, appendix_ii, run_configuration_1, run_configuration_2,
 };
 use oxideav_g722::{Decoder, Encoder, Mode};
 
@@ -75,7 +75,9 @@ fn read_le_words(name: &str) -> Option<Vec<i16>> {
             assert_eq!(bytes.len() % 2, 0, "{name}: odd byte count");
             Some(
                 bytes
-                    .chunks_exact(2)
+                    .as_chunks::<2>()
+                    .0
+                    .iter()
                     .map(|c| i16::from_le_bytes([c[0], c[1]]))
                     .collect(),
             )
@@ -187,7 +189,12 @@ fn staged_binaries_match_the_recommendations_crc32_table() {
         assert_eq!(crc32(&le), crc_le, "{name}: LE CRC-32 (Table II.6)");
         assert_eq!(crc32(&be), crc_be, "{name}: BE CRC-32 (Table II.6)");
         // LE and BE must be byte-swapped images of the same words.
-        let swapped: Vec<u8> = be.chunks_exact(2).flat_map(|c| [c[1], c[0]]).collect();
+        let swapped: Vec<u8> = be
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .flat_map(|c| [c[1], c[0]])
+            .collect();
         assert_eq!(le, swapped, "{name}: LE/BE word disagreement");
     }
 }
@@ -217,7 +224,7 @@ fn parse_ascii(bytes: &[u8], name: &str) -> Vec<i16> {
         let expected = (!sum + 1) & 0xFF; // two's complement of low 8 bits
         let actual = u32::from_str_radix(std::str::from_utf8(&line[64..66]).unwrap(), 16).unwrap();
         assert_eq!(actual, expected, "{name}: line {li} checksum");
-        for w in line[..64].chunks_exact(4) {
+        for w in line[..64].as_chunks::<4>().0 {
             let v = u16::from_str_radix(std::str::from_utf8(w).unwrap(), 16).unwrap();
             words.push(v as i16);
         }

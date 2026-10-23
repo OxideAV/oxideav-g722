@@ -928,6 +928,7 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 
+- edition 2024, MSRV 1.95
 - **Reset to orphan-rebuild scaffold (2026-05-25).** The prior
   implementation was retired under the workspace clean-room policy: its
   data tables were documented as having been copied from an external

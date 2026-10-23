@@ -95,7 +95,7 @@ mod tables;
 pub mod test_harness;
 pub mod transmission;
 
-pub use aux_data::{aux_bit_rate_kbps, aux_bits_per_octet, DataExtractor, DataInserter};
+pub use aux_data::{DataExtractor, DataInserter, aux_bit_rate_kbps, aux_bits_per_octet};
 pub use decoder::{Decoder, Mode};
 pub use encoder::Encoder;
 pub use plc::PlcDecoder;

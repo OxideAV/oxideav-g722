@@ -113,7 +113,9 @@ fn read_words(name: &str) -> Option<Vec<u16>> {
     match std::fs::read(&path) {
         Ok(bytes) => Some(
             bytes
-                .chunks_exact(2)
+                .as_chunks::<2>()
+                .0
+                .iter()
                 .map(|c| u16::from_le_bytes([c[0], c[1]]))
                 .collect(),
         ),

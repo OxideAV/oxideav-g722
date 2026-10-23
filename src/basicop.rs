@@ -100,11 +100,7 @@ pub(crate) fn shr(a: i32, n: i32) -> i32 {
     if n < 0 {
         shl(a, -n)
     } else if n >= 15 {
-        if a < 0 {
-            -1
-        } else {
-            0
-        }
+        if a < 0 { -1 } else { 0 }
     } else {
         a >> n
     }
@@ -173,11 +169,7 @@ pub(crate) fn l_sub(a: i32, b: i32) -> i32 {
 /// `L_abs(L_v1)` — `L_abs(-2147483648) = 2147483647` (§2.4).
 #[inline]
 pub(crate) fn l_abs(a: i32) -> i32 {
-    if a == i32::MIN {
-        i32::MAX
-    } else {
-        a.abs()
-    }
+    if a == i32::MIN { i32::MAX } else { a.abs() }
 }
 
 /// `L_mac(L_v3,v1,v2) = L_add(L_v3, L_mult(v1,v2))` — two saturation
@@ -225,11 +217,7 @@ pub(crate) fn l_shr(a: i32, n: i32) -> i32 {
     if n < 0 {
         l_shl(a, -n)
     } else if n >= 31 {
-        if a < 0 {
-            -1
-        } else {
-            0
-        }
+        if a < 0 { -1 } else { 0 }
     } else {
         a >> n
     }

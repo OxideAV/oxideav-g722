@@ -187,11 +187,7 @@ fn div32_q31(num: i32, den: i32) -> i32 {
     let rem_up = l_shl(l_abs(rem), 15);
     let q2 = {
         let rh = extract_h(rem_up);
-        if rh <= 0 {
-            0
-        } else {
-            div_s(rh.min(dh), dh)
-        }
+        if rh <= 0 { 0 } else { div_s(rh.min(dh), dh) }
     };
     if rem < 0 {
         l_sub(l_deposit_h(q15), l_shl(q2, 1))
@@ -338,11 +334,7 @@ fn norm_corr(xy: i64, xx: i64, yy: i64) -> i32 {
         return 0;
     }
     let q = div_s(nh.min(dh), dh);
-    if num < 0 {
-        -q
-    } else {
-        q
-    }
+    if num < 0 { -q } else { q }
 }
 
 /// LTP open-loop pitch analysis (clause IV.6.1.2.3, Figure IV.3) on

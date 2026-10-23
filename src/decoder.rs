@@ -12,7 +12,7 @@
 //!   * `Decoder` — pairs the two sub-bands with the 24-tap receive
 //!     QMF (Figure 18/G.722 / clause 5.2.2).
 
-use crate::predictor::{add, mul, sub, SubBandState};
+use crate::predictor::{SubBandState, add, mul, sub};
 use crate::tables::{
     IH2_FROM_IH, IL4_FROM_IL4, IL5_FROM_IL5, IL6_FROM_IL6, QMF_TAPS, QQ2, QQ4, QQ5, QQ6,
     SIH_FROM_IH, SIL_FROM_IL4, SIL_FROM_IL5, SIL_FROM_IL6, WH, WL,
