@@ -4,6 +4,10 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Changed
+
+- API hygiene: the clause-2 measurement reports `IdleNoiseReport`, `IdleChannelSpectrumReport`, `ToneResponseReport`, `SignalToDistortionReport` and `GroupDelayReport` are now `#[non_exhaustive]`. The Figure 10–16 `MaskBand` enums, `MeasurementTone`, `SegmentKind`, the Appendix II word decompositions (`InfaOutput`, `InfcOutput`, `Configuration2Output`) and `SineFit` stay exhaustive because the Recommendation fixes them.
+
 ### Added
 
 - **Fitted smaller-pitch preference for the Appendix IV LTP search**

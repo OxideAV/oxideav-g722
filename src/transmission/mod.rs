@@ -257,6 +257,7 @@ pub fn uniform_pcm_rms(samples: &[i32]) -> f64 {
 /// therefore counts it against the limit as a worst-case bound, not
 /// as a faithful Figure 9/G.722 measurement.
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
 pub struct IdleNoiseReport {
     /// Sample count actually used for the RMS measurement (the
     /// initial transient is dropped — see [`measure_idle_noise`]).
@@ -349,6 +350,7 @@ pub fn measure_idle_noise_default(mode: Mode) -> IdleNoiseReport {
 /// boundary, so the 50 Hz – 20 kHz wideband window of clause 2.4.4
 /// truncates to 50 Hz – 8 kHz here (everything the codec can emit).
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
 pub struct IdleChannelSpectrumReport {
     /// Sample count of the measured steady-state window.
     pub samples_measured: usize,
@@ -452,6 +454,7 @@ pub fn measure_idle_channel_spectrum(mode: Mode) -> IdleChannelSpectrumReport {
 /// attenuation/frequency mask (see
 /// [`crate::transmission::attenuation_distortion`]).
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
 pub struct ToneResponseReport {
     /// Tone frequency in Hz.
     pub frequency_hz: f64,
@@ -545,6 +548,7 @@ pub fn measure_tone_response(
 /// readings taken with this helper are *quality-regression* anchors
 /// pinned against measured behaviour, not normative limits.
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
 pub struct SignalToDistortionReport {
     /// Stimulus frequency in Hz.
     pub frequency_hz: f64,
@@ -655,6 +659,7 @@ pub fn measure_signal_to_distortion_default(
 /// a sine wave signal between 50 and 7000 Hz, should not exceed 4 ms.
 /// The test level is −10 dBm0", page 9).
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
 pub struct GroupDelayReport {
     /// Centre frequency (Hz) the group delay is evaluated at.
     pub center_frequency_hz: f64,
